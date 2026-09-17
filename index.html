@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Airframe Forge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="app.css">
+
+<div class="app">
+  <header class="bar">
+    <div class="brand"><h1>Airframe <b>Forge</b></h1><span>3D-printable UAV design, analysis &amp; parts</span></div>
+    <nav class="tabs" role="tablist" aria-label="Workspace">
+      <button role="tab" data-tab="air" aria-selected="true">Airframe</button>
+      <button role="tab" data-tab="pow" aria-selected="false">Power</button>
+      <button role="tab" data-tab="aero" aria-selected="false">Aerodynamics</button>
+      <button role="tab" data-tab="bal" aria-selected="false">Balance</button>
+      <button role="tab" data-tab="opt" aria-selected="false">Mission</button>
+    </nav>
+    <button class="btn primary" id="exportBtn">Export parts</button>
+  </header>
+  <div class="work">
+    <aside class="side left" id="left" aria-label="Design inputs"></aside>
+    <main class="stage">
+      <div id="view"></div>
+      <div class="hud" id="hud"></div>
+      <div class="views" role="group" aria-label="Camera">
+        <button data-view="iso">3D</button><button data-view="top">Top</button><button data-view="below">Below</button><button data-view="front">Front</button><button data-view="side">Side</button>
+      </div>
+      <div class="legend3d">
+        <span><i style="background:var(--s3)"></i>Neutral point</span><span><i style="background:var(--s1)"></i>Target CG</span><span><i style="background:var(--good)"></i>Actual CG</span><span><i style="background:var(--carbon)"></i>Carbon</span><span><i style="background:var(--part-ctrl)"></i>Control surfaces</span>
+      </div>
+      <div class="cmap" id="cmap" hidden></div>
+      <div class="floattip" id="partTip" hidden></div>
+      <div class="dragtip" id="dragTip" hidden></div>
+    </main>
+    <aside class="side right" id="right" aria-label="Analysis"></aside>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="js/data.js"></script>
+<script src="js/foils.js"></script>
+<script src="js/layout.js"></script>
+<script src="js/aero.js"></script>
+<script src="js/power.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/geometry-core.js"></script>
+<script src="js/geometry.js"></script>
+<script src="js/flowfield.js"></script>
+<script src="js/search.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/viewer.js"></script>
+<script src="js/ui-controls.js"></script>
+<script src="js/ui-panels.js"></script>
+<script src="js/ui-main.js"></script>
+
+</body>
+</html>
