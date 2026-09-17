@@ -16,19 +16,19 @@ function makeLayout(p) {
   const log = [];                                     // design rationale ("why this dimension")
   const note = (topic, text) => log.push([topic, text]);
   const fRoot = foilOf(p.foilRoot, "naca2412"), fTip = foilOf(p.foilTip, "naca2412");
-  const fBody = foilOf(p.foilBody, "naca23115"), fTail = foilOf(p.foilTail, "naca0009");
+  const fTail = foilOf(p.foilTail, "naca0009");
   const hasFuse = p.fuseType !== "none";
   const tailless = p.tailType === "none" || p.tailType === "fin";
-  const half = p.span / 2, bwb = p.wingType === "bwb";
-  const bw2 = bwb ? p.bodyWidth / 2 : 0, y0 = bwb ? bw2 + p.blendLen : 0;
+  const half = p.span / 2;
   const cr = p.rootChord, ct = cr * p.taper;
-  const outerLen = Math.max(1, half - y0);
+  const outerLen = half;
+  // wing–fuselage blend starts just inside the fuselage side
+  const blend = hasFuse && p.wingBlend, yf = blend ? p.fuseW / 2 * 0.85 : 0, yBlendEnd = blend ? Math.min(half * 0.6, yf + p.blendSpan) : 0;
   let tanLE = Math.tan(p.sweep * D2R);
   if (p.wingType === "delta") {
     tanLE = ((cr - ct) + outerLen * Math.tan(p.teSweep * D2R)) / outerLen;
     note("Wing", `Delta leading-edge sweep ${fmtN(Math.atan(tanLE) / D2R, 1)}° follows from the ${fmtN(cr)} mm root, ${fmtN(ct)} mm tip and ${p.teSweep}° trailing edge.`);
   }
-  const xLE0 = bwb ? bw2 * tanLE * 0.5 + (p.bodyChord - cr) * 0.45 + p.blendLen * tanLE * 0.8 : 0;
   const tanDih = Math.tan(p.dihedral * D2R);
   const xw = hasFuse ? p.noseLen : 0;
   const podTailless = p.fuseType === "pod" && (tailless);
@@ -36,22 +36,17 @@ function makeLayout(p) {
 
   /* wing section at spanwise station y >= 0 */
   function wingAt(y) {
-    let xl, c, fA = fRoot, fB = fTip, s, twist = 0;
-    if (bwb && y <= bw2) { xl = y * tanLE * 0.5; c = p.bodyChord; fA = fB = fBody; s = 0; }
-    else if (bwb && y < y0) {
-      const e = smooth((y - bw2) / p.blendLen);
-      xl = lerp(y * tanLE * 0.5, xLE0 + (y - y0) * tanLE, e); c = lerp(p.bodyChord, cr, e); fA = fBody; fB = fRoot; s = e;
-    } else {
-      const v = (y - y0) / outerLen;
-      xl = xLE0 + (y - y0) * tanLE; c = cr + (ct - cr) * v; s = v; twist = -p.washout * v;
-      if (!bwb && p.rootBlend > 0 && y < p.rootBlend) {
-        const g = 1 + (p.rootBlendGrowth - 1) * (1 - smooth(y / p.rootBlend));
-        const c2 = c * g; xl -= (c2 - c) * 0.75; c = c2;
-      }
+    const v = y / outerLen;
+    let xl = y * tanLE, c = cr + (ct - cr) * v, thick = 1;
+    if (blend && y < yBlendEnd) {
+      const k = 1 - smooth((y - yf) / (yBlendEnd - yf));            // 1 at the fuselage side, 0 where the blend ends
+      const c2 = c * (1 + (p.blendChord - 1) * k);
+      xl -= (c2 - c) * 0.6; c = c2; thick = 1 + (p.blendThick - 1) * k;
     }
-    return {x: xw + xl, y, z: zWing + y * tanDih, c, fA, fB, s, twist};
+    return {x: xw + xl, y, z: zWing + y * tanDih, c, fA: fRoot, fB: fTip, s: v, twist: -p.washout * v, thick};
   }
-  const wingBreaks = [0, bw2, y0, p.rootBlend && !bwb ? p.rootBlend : 0, half].filter((v, i, a) => v >= 0 && v <= half && a.indexOf(v) === i).sort((a, b) => a - b);
+  const wingBreaks = [0, yf, yBlendEnd, half].filter((v, i, a) => v >= 0 && v <= half && a.indexOf(v) === i).sort((a, b) => a - b);
+  if (blend) note("Wing", `Root blended into the fuselage over ${fmtN(yBlendEnd - yf)} mm: chord ×${p.blendChord}, thickness ×${p.blendThick} at the fuselage side.`);
 
   // integrate wing reference quantities
   let S2 = 0, c2 = 0, xc = 0, yc = 0, xCent = 0; const NI = 400;
@@ -62,7 +57,7 @@ function makeLayout(p) {
   const S = 2 * S2, mac = 2 * c2 / S, xMacLE = 2 * xc / S, yMac = yc / S2;
   const AR = p.span ** 2 / S;
   const xacW = xMacLE + 0.25 * mac;
-  const wing = {half, S, mac, xMacLE, yMac, AR, xacW, xCentroid: xCent / S2, cr, ct, tanLE, bw2, y0, wingAt, breaks: wingBreaks, fRoot, fTip, fBody};
+  const wing = {half, S, mac, xMacLE, yMac, AR, xacW, xCentroid: xCent / S2, cr, ct, tanLE, bw2: 0, y0: 0, blendEnd: yBlendEnd, wingAt, breaks: wingBreaks, fRoot, fTip};
   const xTEat = y => { const w = wingAt(y); return w.x + w.c; };
 
   /* ---- fuselage ---- */
@@ -200,7 +195,7 @@ function makeLayout(p) {
     const x = push ? w.x + w.c + 30 : w.x - 40;
     for (const sgn of [1, -1]) motors.push({pos: [x, sgn * y, w.z], dir: [push ? 1 : -1, 0, 0], propD: p.propD, role: "cruise", mount: "nacelle"});
     nacelles.push({y, x0: push ? w.x + w.c * 0.35 : w.x - 30, x1: push ? w.x + w.c + 22 : w.x + w.c * 0.6, r: main.can / 2 + 5, z: w.z, push});
-    if (propR > y - (hasFuse ? p.fuseW / 2 : bw2) - 8) note("Propulsion", `Warning: the ${p.propD}" propellers come within ${fmtN(y - propR - (hasFuse ? p.fuseW / 2 : bw2))} mm of the fuselage.`);
+    if (propR > y - (hasFuse ? p.fuseW / 2 : 0) - 8) note("Propulsion", `Warning: the ${p.propD}" propellers come within ${fmtN(y - propR - (hasFuse ? p.fuseW / 2 : 0))} mm of the fuselage.`);
   }
 
   /* ---- VTOL ---- */

@@ -79,14 +79,22 @@ const App = {
     if (kind === "hatchBatt") { p.hatchBattAuto = false; p.hatchBattX = Math.max(10, x - Math.round(p.hatchBattLen / 2)); }
     if (kind === "hatchAv") p.hatchAvX = Math.max(10, x - Math.round(p.hatchAvLen / 2));
     if (kind === "deck") p.deckX = x - L.xw - Math.round(p.deckLen / 2);
+    const wcs = S.B.wcs, clamp01 = v => Math.min(1, Math.max(0, +v.toFixed(2)));
+    if (kind === "servo" && wcs) {
+      const bay = S.B.bays.find(q => q.kind === "servo"), len = bay ? bay.b - bay.a : 46, lo = wcs.a + len / 2 + 2, hi = Math.max(lo + 1, wcs.b - len / 2 - 2);
+      p.servoPos = clamp01((Math.abs(v.y) - lo) / (hi - lo));
+    }
+    if (kind === "horn" && wcs) { p.hornAuto = false; p.hornPos = clamp01((Math.abs(v.y) - wcs.a - 6) / (wcs.b - wcs.a - 12)); }
     if (kind === "pod") p.podX = x - L.xw - Math.round(p.podL / 2);
     $("dragTip").hidden = v.final;
-    $("dragTip").textContent = `${kind === "hatchBatt" ? "battery hatch" : kind === "hatchAv" ? "avionics hatch" : kind} · ${fmt(x)} mm from nose${["intake", "exhaust"].includes(kind) ? ` · ${ang}°` : ""}`;
+    $("dragTip").textContent = ["servo", "horn"].includes(kind)
+      ? `${kind === "servo" ? "wing servo" : "control horn"} · ${fmt(Math.abs(v.y))} mm from the wing root`
+      : `${kind === "hatchBatt" ? "battery hatch" : kind === "hatchAv" ? "avionics hatch" : kind === "deck" ? "canopy" : kind} · ${fmt(x)} mm from nose${["intake", "exhaust"].includes(kind) ? ` · ${ang}°` : ""}`;
     if (v.final) { Left.sync(); this.full(); if (S.tab === "aero" && S.color === "pressure") toast("Moved. Check the Cooling ports section for the new pressures."); }
   },
   hover(pt, e, markerKind) {
     const tip = $("partTip"), stage = $("view").getBoundingClientRect();
-    if (markerKind) { tip.hidden = false; tip.textContent = `Drag to move the ${markerKind === "hatchBatt" ? "battery hatch" : markerKind === "hatchAv" ? "avionics hatch" : markerKind}`; }
+    if (markerKind) { tip.hidden = false; tip.textContent = `Drag to move the ${{hatchBatt: "battery hatch", hatchAv: "avionics hatch", deck: "canopy", servo: "wing servo (both sides)", horn: "control horn (both sides)"}[markerKind] || markerKind}`; }
     else if (!pt) { tip.hidden = true; return; }
     else { tip.hidden = false; tip.textContent = `${pt.name} · ${pt.size.map(v => fmt(v)).join(" × ")} mm${pt.fits ? "" : " · too big for the bed"}`; }
     tip.style.left = Math.min(stage.width - 20, e.clientX - stage.left + 14) + "px";
@@ -203,7 +211,7 @@ const App = {
       files.push({name: "cfd/aircraft_flight_position_mm.stl", data: stlBinary(all, "assembly")});
       const avl = avlText(A);
       files.push({name: "avl/aircraft.avl", data: enc.encode(avl.text)});
-      const foils = new Set([A.L.wing.fRoot, A.L.wing.fTip, A.L.wing.fBody, A.L.fTail, ...avl.foils]);
+      const foils = new Set([A.L.wing.fRoot, A.L.wing.fTip, A.L.fTail, ...avl.foils]);
       for (const f of foils) { files.push({name: `avl/airfoils/${f.id}.dat`, data: enc.encode(datText(f))}); }
       files.push({name: "build_sheet.txt", data: enc.encode(buildSheet(A, B))});
       files.push({name: "design.json", data: enc.encode(JSON.stringify({generator: "Airframe Forge", params: S.p, mission: S.m, results: {mtow_g: A.mtow, stall_ms: A.perf.Vs, cruise_ms: A.perf.cruise && A.perf.cruise.V, endurance_min: A.perf.endurance, range_km: A.perf.range, cg_mm_from_le: A.xcg - A.L.xw, np_mm_from_le: A.xnp - A.L.xw}}, null, 2))});
@@ -232,7 +240,7 @@ function buildSheet(A, B) {
   hr("Configuration");
   line(`Wing ${p.wingType}, tail ${p.tailType}, fuselage ${p.fuseType}, motors ${p.motorLayout}${p.vtol !== "none" ? `, VTOL ${p.vtol}` : ""}`,
     `Root ${fmt(W.cr)} mm / tip ${fmt(W.ct)} mm, area ${fmt(W.S / 1e4, 1)} dm², AR ${fmt(W.AR, 2)}, MAC ${fmt(W.mac)} mm`,
-    `Airfoils: root ${W.fRoot.name}, tip ${W.fTip.name}${p.wingType === "bwb" ? `, body ${W.fBody.name}` : ""}, tail ${L.fTail.name}`);
+    `Airfoils: root ${W.fRoot.name}, tip ${W.fTip.name}, tail ${L.fTail.name}`);
   hr("Balance");
   line(`CG ${fmt(A.xTarget - L.xw)} mm behind the wing root leading edge (static margin ${p.staticMargin}%). Neutral point ${fmt(A.xnp - L.xw)} mm.`,
     `Battery center at ${fmt(p.battX)} mm (balance needs ${fmt(A.battXNeeded)} mm).`);

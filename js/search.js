@@ -17,7 +17,7 @@ function powerViolations(A) {
     if (f.hover && f.hover.Ifull > A.liftMotor.imax * 1.05) v.push(["Lift motor current", (f.hover.Ifull - A.liftMotor.imax) / A.liftMotor.imax]);
   } else if (f.TW < p.minTW) v.push(["Launch thrust", (p.minTW - f.TW) / p.minTW]);
   const L = A.L;
-  if (L.nacelles.length) { const clear = L.nacelles[0].y - (L.hasFuse ? p.fuseW / 2 : L.wing.bw2) - p.propD * IN / 2; if (clear < 8) v.push(["Prop clears fuselage", (8 - clear) / 50]); }
+  if (L.nacelles.length) { const clear = L.nacelles[0].y - (L.hasFuse ? p.fuseW / 2 : 0) - p.propD * IN / 2; if (clear < 8) v.push(["Prop clears fuselage", (8 - clear) / 50]); }
   return v;
 }
 
@@ -65,10 +65,7 @@ function missionDecode(x, base, M, cands) {
   const p = Object.assign({}, base);
   p.span = x[0]; p.taper = x[2];
   const S = p.span * p.span / x[1];
-  if (p.wingType === "bwb") {
-    const outerHalf = p.span / 2 - p.bodyWidth / 2 - p.blendLen;
-    p.rootChord = Math.max(80, 2 * Math.max(1, S - p.bodyWidth * p.bodyChord) / (2 * outerHalf * (1 + p.taper)) * 0.9);
-  } else p.rootChord = 2 * S / (p.span * (1 + p.taper));
+  p.rootChord = 2 * S / (p.span * (1 + p.taper));
   p.foilRoot = cands[Math.min(cands.length - 1, Math.floor(x[3]))];
   p.foilTip = cands[Math.min(cands.length - 1, Math.floor(x[4]))];
   if (base.fuseType !== "none") p.noseLen = Math.round(base.noseLen * p.span / base.span);
@@ -88,7 +85,7 @@ function missionScore(A, M) {
   if (M.mReqType === "range") v.push(Math.max(0, M.mReqValue - f.range) / M.mReqValue);
   else v.push(Math.max(0, M.mReqValue - f.endurance) / M.mReqValue);
   for (const t of A.tubes) if (!t.ok) v.push(0.5);
-  const maxChord = A.L.wing.cr * (A.p.rootBlend > 0 ? A.p.rootBlendGrowth : 1);
+  const maxChord = A.L.wing.cr * (A.p.wingBlend && A.L.hasFuse ? A.p.blendChord : 1);
   if (maxChord > Math.hypot(A.p.bedX, A.p.bedY) - 12) v.push(0.5);
   for (const [, amt] of powerViolations(A)) v.push(Math.max(0.05, amt));
   if (A.L.tailless && !(A.trim.CL > 0.05)) v.push(0.3);

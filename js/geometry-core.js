@@ -236,10 +236,11 @@ function cutBounds(len, zUse, manualStr, manual) {
 function foilPts(st, U, minTE) {
   const te = Math.min(minTE / st.c, 0.03), ang = st.twist * D2R, ca = Math.cos(ang), sa = Math.sin(ang), piv = 0.25 * st.c;
   const rot = (x, z) => { const dx = x - piv; return [st.x + piv + dx * ca + z * sa, -dx * sa + z * ca]; };
-  const lo = [], up = [];
+  const lo = [], up = [], k = st.thick || 1;
   for (const u of U) {
-    const yu = lerp(interpY(XG, st.fA.yu, u), interpY(XG, st.fB.yu, u), st.s) + te / 2 * u;
-    const yl = lerp(interpY(XG, st.fA.yl, u), interpY(XG, st.fB.yl, u), st.s) - te / 2 * u;
+    const au = lerp(interpY(XG, st.fA.yu, u), interpY(XG, st.fB.yu, u), st.s), al = lerp(interpY(XG, st.fA.yl, u), interpY(XG, st.fB.yl, u), st.s), zc = (au + al) / 2;
+    const yu = zc + (au - zc) * k + te / 2 * u;
+    const yl = zc + (al - zc) * k - te / 2 * u;
     lo.push(rot(u * st.c, yl * st.c)); up.push(rot(u * st.c, yu * st.c));
   }
   up[0] = lo[0];
@@ -312,7 +313,7 @@ function avlText(A) {
     out.push("ANGLE", "0.0");
     st.forEach(s => out.push(...section(s)));
   };
-  const ws = [0, W.bw2, W.y0, W.half * 0.5, W.half].filter((v, i, a) => a.indexOf(v) === i).map(y => W.wingAt(y));
+  const ws = [0, W.blendEnd, W.half * 0.5, W.half].filter((v, i, a) => a.indexOf(v) === i).map(y => W.wingAt(y));
   surface("Wing", ws, true, 24);
   for (const s of L.surfaces) surface(s.name, [s.st[0], s.st[s.st.length - 1]], s.mirrored, 10);
   return {text: out.join("\n"), foils: [...foils]};

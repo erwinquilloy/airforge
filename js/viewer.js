@@ -219,6 +219,11 @@ const Viewer = (() => {
       if (p.deck) addHandle("deck", surf(L.xw + p.deckX + p.deckLen / 2, 90), "--part-mount");
       if (p.pod) addHandle("pod", surf(L.xw + p.podX + p.podL / 2, -90), "--part-mount");
     }
+    if (b.servoMark || b.hornMark) {
+      const onWing = m => [m.x, m.s, L.zWing + m.s * tanG + m.z];
+      if (b.servoMark) addHandle("servo", onWing(b.servoMark), "--s1");
+      if (b.hornMark) addHandle("horn", onWing(b.hornMark), "--s2");
+    }
     root.add(model); root.add(overlay); root.add(markers);
 
     // bounds and ground grid in the aircraft frame
@@ -264,14 +269,15 @@ const Viewer = (() => {
   }
   function onMove(e) {
     if (dragging) {
-      const fuse = model.children.filter(m => m.userData.part && m.userData.part.group === "fuse");
-      const hit = pick(e, fuse)[0];
+      const onWing = dragging === "servo" || dragging === "horn";
+      const targets = model.children.filter(m => m.userData.part && (onWing ? ["wing", "ctrl"].includes(m.userData.part.group) : m.userData.part.group === "fuse"));
+      const hit = pick(e, targets)[0];
       if (!hit) return;
-      const P = toAircraft(hit.point), L = A.L, [, , zc] = L.fuse.profile(Math.min(L.fuse.L, Math.max(0, P.x)));
-      const ang = Math.atan2(P.z - zc, P.y) / D2R;
+      const P = toAircraft(hit.point), L = A.L;
+      const ang = L.hasFuse ? Math.atan2(P.z - L.fuse.profile(Math.min(L.fuse.L, Math.max(0, P.x)))[2], P.y) / D2R : 0;
       markers.children.filter(m => m.userData.kind === dragging).forEach(m => m.position.set(P.x, P.y, P.z));
       render();
-      dragCb && dragCb(dragging, {x: P.x, ang, final: false});
+      dragCb && dragCb(dragging, {x: P.x, y: P.y, ang, final: false});
       return;
     }
     const now = performance.now();
@@ -286,7 +292,7 @@ const Viewer = (() => {
     if (!dragging) return;
     const kind = dragging; dragging = null; controls.enabled = true;
     const m = markers.children.find(q => q.userData.kind === kind);
-    if (m) { const L = A.L, [, , zc] = L.fuse.profile(Math.min(L.fuse.L, Math.max(0, m.position.x))); dragCb && dragCb(kind, {x: m.position.x, ang: Math.atan2(m.position.z - zc, m.position.y) / D2R, final: true}); }
+    if (m) { const L = A.L, zc = L.hasFuse ? L.fuse.profile(Math.min(L.fuse.L, Math.max(0, m.position.x)))[2] : 0; dragCb && dragCb(kind, {x: m.position.x, y: m.position.y, ang: Math.atan2(m.position.z - zc, m.position.y) / D2R, final: true}); }
   }
   function highlight(name) {
     if (!model) return;

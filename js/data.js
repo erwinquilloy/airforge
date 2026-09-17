@@ -84,7 +84,7 @@ const T = (tab, group, id, label, def, show, hint) => ({kind: "bool", tab, group
 
 const SCHEMA = [
   // ---- configuration
-  SEL("air", "cfg", "wingType", "Wing type", [["tapered", "Tapered / swept"], ["delta", "Delta"], ["bwb", "Blended wing body"]], "tapered"),
+  SEL("air", "cfg", "wingType", "Wing type", [["tapered", "Tapered / swept"], ["delta", "Delta"]], "tapered"),
   SEL("air", "cfg", "tailType", "Tail", [["conv", "Conventional"], ["ttail", "T-tail"], ["vtail", "V-tail"], ["twinboom", "Twin boom, H-tail"], ["fin", "Center fin only (tailless)"], ["none", "None (flying wing)"]], "conv"),
   SEL("air", "cfg", "fuseType", "Fuselage", [["podboom", "Pod and printed boom"], ["full", "Full fuselage"], ["pod", "Short pod"], ["none", "None"]], "podboom"),
   SEL("air", "cfg", "motorLayout", "Motor layout", [["tractor", "Nose tractor"], ["pusher", "Pusher"], ["twin", "Twin wing tractors"], ["twinpusher", "Twin wing pushers"]], "pusher"),
@@ -96,11 +96,10 @@ const SCHEMA = [
   F("air", "wing", "teSweep", "Trailing-edge sweep", "°", -20, 30, 0.5, 0, p => p.wingType === "delta", "0° gives a straight trailing edge; leading-edge sweep follows from span and chords."),
   F("air", "wing", "dihedral", "Dihedral (per side)", "°", -6, 12, 0.5, 3),
   F("air", "wing", "washout", "Tip twist (+ = washout)", "°", -4, 8, 0.1, 1.5),
-  F("air", "wing", "bodyWidth", "Center body width", "mm", 80, 900, 5, 260, p => p.wingType === "bwb"),
-  F("air", "wing", "bodyChord", "Center body chord", "mm", 150, 1200, 5, 460, p => p.wingType === "bwb"),
-  F("air", "wing", "blendLen", "Body-to-wing blend length", "mm", 20, 400, 5, 110, p => p.wingType === "bwb"),
-  F("air", "wing", "rootBlend", "Root fairing length", "mm", 0, 300, 5, 0, p => p.wingType !== "bwb", "Blends the wing into the fuselage with a smooth chord extension. 0 = none."),
-  F("air", "wing", "rootBlendGrowth", "Root fairing chord growth", "×", 1, 2.2, 0.01, 1.3, p => p.wingType !== "bwb" && p.rootBlend > 0),
+  T("air", "wing", "wingBlend", "Blend wing into fuselage", false, hasFuse, "Chord and thickness grow smoothly toward the fuselage side, removing the sharp wing–body corner."),
+  F("air", "wing", "blendSpan", "Blend length (from fuselage side)", "mm", 10, 300, 1, 70, p => hasFuse(p) && p.wingBlend),
+  F("air", "wing", "blendChord", "Chord growth at the fuselage", "×", 1, 2.2, 0.01, 1.35, p => hasFuse(p) && p.wingBlend),
+  F("air", "wing", "blendThick", "Thickness growth at the fuselage", "×", 1, 3, 0.05, 1.8, p => hasFuse(p) && p.wingBlend),
   T("air", "wing", "tipFins", "Tip fins / winglets", true, p => p.tailType === "none"),
   F("air", "wing", "tipFinH", "Tip fin height", "mm", 30, 300, 5, 110, p => p.tailType === "none" && p.tipFins),
   // ---- tail
@@ -132,14 +131,18 @@ const SCHEMA = [
   F("air", "hatch", "hatchAvX", "Avionics hatch start (from nose)", "mm", 10, 1500, 1, 360, p => hasFuse(p) && p.hatchAv, "Or drag the hatch in the 3D view."),
   F("air", "hatch", "hatchAvLen", "Avionics hatch length", "mm", 30, 300, 1, 90, p => hasFuse(p) && p.hatchAv),
   F("air", "hatch", "hatchAvW", "Avionics hatch width", "mm", 20, 200, 1, 44, p => hasFuse(p) && p.hatchAv),
-  SEL("air", "hatch", "hatchLatch", "Rear latch", [["magnets", "Magnets (6 × 3 mm)"], ["screws", "M3 screws into inserts"]], "magnets", p => hasFuse(p) && (p.hatchBatt || p.hatchAv)),
-  F("air", "hatch", "magnetD", "Magnet hole Ø", "mm", 3, 12, 0.05, 6.2, p => hasFuse(p) && (p.hatchBatt || p.hatchAv) && p.hatchLatch === "magnets"),
+  SEL("air", "hatch", "hatchLatch", "Rear latch", [["magnets", "Magnets (6 × 3 mm)"], ["screws", "M3 screws into inserts"]], "magnets", p => hasFuse(p) && (p.hatchBatt || p.hatchAv || p.deck)),
+  F("air", "hatch", "magnetD", "Magnet hole Ø", "mm", 3, 12, 0.05, 6.2, p => hasFuse(p) && (p.hatchBatt || p.hatchAv || p.deck) && p.hatchLatch === "magnets"),
   // ---- mounts & bays
-  T("air", "mounts", "deck", "FPV / avionics deck", false),
-  F("air", "mounts", "deckLen", "Deck length", "mm", 40, 250, 1, 90, p => p.deck),
-  F("air", "mounts", "deckW", "Deck width", "mm", 30, 160, 1, 50, p => p.deck),
-  SEL("air", "mounts", "deckPattern", "Deck hole pattern", [["20", "20 × 20 mm stack"], ["30.5", "30.5 × 30.5 mm stack"]], "30.5", p => p.deck),
-  F("air", "mounts", "deckX", "Deck position (from wing LE)", "mm", -600, 400, 5, -80, p => p.deck),
+  T("air", "mounts", "deck", "FPV canopy & avionics bay", false, null, "A swappable streamlined canopy over a top opening, with an FC shelf glued inside the bay."),
+  SEL("air", "mounts", "canopyStyle", "Canopy", [["blank", "Blank fairing (FC, VTX, receiver)"], ["camera", "Camera canopy (open front, cradle)"], ["gps", "GPS canopy (pad on top)"]], "blank", p => p.deck),
+  F("air", "mounts", "deckX", "Canopy position (from wing LE)", "mm", -800, 400, 1, -60, p => p.deck, "Or drag the canopy marker in the 3D view."),
+  F("air", "mounts", "deckLen", "Bay opening length", "mm", 60, 350, 1, 150, p => p.deck),
+  F("air", "mounts", "deckW", "Bay opening width", "mm", 24, 150, 1, 46, p => p.deck),
+  F("air", "mounts", "canopyH", "Canopy height", "mm", 8, 80, 1, 26, p => p.deck),
+  T("air", "mounts", "fcShelf", "FC shelf inside the bay", true, p => p.deck),
+  SEL("air", "mounts", "deckPattern", "FC shelf stack pattern", [["20", "20 × 20 mm stack"], ["30.5", "30.5 × 30.5 mm stack"]], "30.5", p => p.deck && p.fcShelf),
+  F("air", "mounts", "fcShelfDepth", "FC shelf depth below the rim", "mm", 6, 80, 1, 20, p => p.deck && p.fcShelf),
   T("air", "mounts", "pod", "Underslung pod", false, null, "Gimbal, mapping camera or payload release below the aircraft."),
   F("air", "mounts", "podL", "Pod length", "mm", 60, 400, 5, 160, p => p.pod),
   F("air", "mounts", "podD", "Pod diameter", "mm", 30, 160, 1, 62, p => p.pod),
@@ -179,6 +182,14 @@ const SCHEMA = [
   F("air", "ctrl", "servoW", "Servo thickness", "mm", 5, 25, 0.1, 11.9, p => p.ctrlSurf && p.servoType === "custom"),
   F("air", "ctrl", "servoH", "Servo height", "mm", 8, 40, 0.1, 21.9, p => p.ctrlSurf && p.servoType === "custom"),
   F("air", "ctrl", "servoMass", "Servo mass", "g", 2, 60, 0.5, 12, p => p.ctrlSurf && p.servoType === "custom"),
+  F("air", "ctrl", "servoPos", "Wing servo position along the surface", "", 0, 1, 0.01, 0.12, p => p.ctrlSurf, "0 = inboard end, 1 = outboard end. Or drag the servo marker on the right wing."),
+  F("air", "ctrl", "servoGap", "Servo pocket ahead of the hinge", "mm", 1, 60, 0.5, 3, p => p.ctrlSurf),
+  T("air", "ctrl", "hornAuto", "Horn in line with the servo", true, p => p.ctrlSurf),
+  F("air", "ctrl", "hornPos", "Horn position along the surface", "", 0, 1, 0.01, 0.2, p => p.ctrlSurf && !p.hornAuto, "Or drag the horn marker."),
+  SEL("air", "ctrl", "hornSide", "Wing horn side", [["bottom", "Bottom"], ["top", "Top"]], "bottom", p => p.ctrlSurf),
+  F("air", "ctrl", "hornLen", "Horn arm length", "mm", 8, 35, 0.5, 13, p => p.ctrlSurf),
+  F("air", "ctrl", "tailHornPos", "Tail horn position along the surface", "", 0, 1, 0.01, 0.1, p => p.ctrlSurf && p.tailCtrl && p.tailType !== "none"),
+  SEL("air", "ctrl", "tailHornSide", "Tail horn side", [["bottom", "Bottom / left"], ["top", "Top / right"]], "bottom", p => p.ctrlSurf && p.tailCtrl && p.tailType !== "none"),
   SEL("air", "ctrl", "servoOrient", "Wing servo orientation", [["auto", "Auto (stand if the wing is thick enough)"], ["stand", "Standing"], ["flat", "Lying flat"]], "auto", p => p.ctrlSurf),
   // ---- cooling & battery
   T("air", "cool", "intake", "NACA intake duct", false, hasFuse, "Submerged intake: an opening in the shell plus a glue-in duct insert with a 7° ramp."),
@@ -260,14 +271,14 @@ const DEFAULT_COMPONENTS = () => [
 function defaultParams() {
   const p = {};
   SCHEMA.forEach(f => p[f.id] = f.def);
-  Object.assign(p, {foilRoot: "naca3410", foilTip: "naca2412", foilBody: "naca23115", foilTail: "naca0009", components: DEFAULT_COMPONENTS(), template: "cruiser"});
+  Object.assign(p, {foilRoot: "naca3410", foilTip: "naca2412", foilTail: "naca0009", components: DEFAULT_COMPONENTS(), template: "cruiser"});
   return p;
 }
 
 /* Configuration templates — generic archetypes of popular printed airframes */
 const TEMPLATES = [
   {id: "cruiser", name: "FPV cruiser", desc: "Conventional pusher with replaceable FPV nose; long endurance.",
-    p: {wingType: "tapered", tailType: "conv", fuseType: "podboom", motorLayout: "pusher", span: 1600, rootChord: 240, taper: 0.6, sweep: 2, dihedral: 3, washout: 1.5, foilRoot: "naca3410", foilTip: "naca2412", noseMode: "replaceable", noseLen: 300, tailArm: 0.52, vtol: "none", rootBlend: 60, rootBlendGrowth: 1.25, cells: 4, capacity: 4000, motorId: "m2216", propD: 9, propP: 6, battX: -110}},
+    p: {wingType: "tapered", tailType: "conv", fuseType: "podboom", motorLayout: "pusher", span: 1600, rootChord: 240, taper: 0.6, sweep: 2, dihedral: 3, washout: 1.5, foilRoot: "naca3410", foilTip: "naca2412", noseMode: "replaceable", noseLen: 300, tailArm: 0.52, vtol: "none", wingBlend: true, blendSpan: 60, blendChord: 1.3, blendThick: 1.6, cells: 4, capacity: 4000, motorId: "m2216", propD: 9, propP: 6, battX: -110}},
   {id: "twinboom", name: "Twin-boom pusher", desc: "Pod on the wing, carbon booms and H-tail; clear pusher prop arc.",
     p: {wingType: "tapered", tailType: "twinboom", fuseType: "pod", motorLayout: "pusher", span: 1700, rootChord: 250, taper: 0.7, sweep: 0, dihedral: 2, washout: 1, podLen: 460, noseLen: 220, boomSpacing: 0.3, tailArm: 0.46, foilRoot: "naca4412", foilTip: "naca2412", noseMode: "replaceable", vtol: "none", cells: 6, capacity: 3300, motorId: "m3508", propD: 9, propP: 6, battX: -90}},
   {id: "twinmotor", name: "Twin-motor conventional", desc: "Wing-mounted tractors leave the nose free for sensors.",
@@ -280,8 +291,8 @@ const TEMPLATES = [
     p: {wingType: "tapered", tailType: "none", fuseType: "pod", motorLayout: "twin", motorSpan: 0.35, span: 1300, rootChord: 260, taper: 0.8, sweep: 3, dihedral: 1, washout: 1, podLen: 320, noseLen: 120, tipFins: true, tipFinH: 90, foilRoot: "naca25112", foilTip: "naca25112", noseMode: "replaceable", vtol: "none", cells: 4, capacity: 3000, motorId: "m2204", propD: 5, propP: 3, staticMargin: 5, battX: -60}},
   {id: "delta", name: "Delta", desc: "High-sweep delta with center fin — fast, stiff, compact.",
     p: {wingType: "delta", tailType: "fin", vVol: 0.03, vAR: 1.2, fuseType: "pod", motorLayout: "pusher", span: 960, rootChord: 330, taper: 0.12, teSweep: 0, dihedral: 0, washout: 1, podLen: 380, noseLen: 60, foilRoot: "naca23110", foilTip: "naca23110", noseMode: "replaceable", vtol: "none", cells: 4, capacity: 2600, motorId: "m2204", propD: 5, propP: 3, staticMargin: 6, battX: 60, sparPos: 0.3, spar2Pos: 0.6}},
-  {id: "bwb", name: "Blended wing body", desc: "Lifting center body blended into swept outer wings.",
-    p: {wingType: "bwb", tailType: "none", fuseType: "none", motorLayout: "pusher", span: 1400, bodyWidth: 240, bodyChord: 340, blendLen: 120, rootChord: 220, taper: 0.45, sweep: 24, dihedral: 1, washout: 3, tipFins: true, tipFinH: 120, foilBody: "naca23115", foilRoot: "naca23112", foilTip: "naca23110", deck: true, deckX: 40, vtol: "none", cells: 4, capacity: 5000, motorId: "m2216", propD: 9, propP: 6, staticMargin: 6, battX: 60, payloadX: 90}},
+  {id: "blended", name: "Blended long-range", desc: "Long-range cruiser with the wing faired into a roomy fuselage, V-tail and pusher.",
+    p: {wingType: "tapered", tailType: "vtail", fuseType: "podboom", motorLayout: "pusher", span: 2000, rootChord: 260, taper: 0.55, sweep: 2, dihedral: 2.5, washout: 1.5, noseLen: 360, fuseW: 96, fuseH: 104, wingBlend: true, blendSpan: 90, blendChord: 1.28, blendThick: 2, foilRoot: "naca4412", foilTip: "naca2412", noseMode: "replaceable", deck: true, vtol: "none", cells: 6, capacity: 8000, motorId: "m3515", propD: 11, propP: 7, battX: -120, hatchBatt: false}},
   {id: "quadplane", name: "Quadplane VTOL", desc: "FPV cruiser plus four lift motors on underwing booms.",
     p: {wingType: "tapered", tailType: "vtail", fuseType: "podboom", motorLayout: "pusher", span: 1900, rootChord: 260, taper: 0.62, sweep: 1, dihedral: 2, washout: 1.5, noseLen: 340, foilRoot: "naca4412", foilTip: "naca2412", noseMode: "replaceable", pod: true, vtol: "quad", vtolBoomY: 0.36, cells: 5, capacity: 9600, chem: "lipo", motorId: "m2814", propD: 11, propP: 5.5, liftMotorId: "m3508", liftPropD: 13, liftPropP: 4.5, battX: -140}},
   {id: "tailsitter", name: "Tailsitter wing", desc: "Twin-motor wing that takes off vertically on its tip fins.",

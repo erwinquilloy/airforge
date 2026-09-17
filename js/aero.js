@@ -13,8 +13,11 @@ function segVel(P, A, B, out, core) {
   const r1 = Math.sqrt(r1x * r1x + r1y * r1y + r1z * r1z), r2 = Math.sqrt(r2x * r2x + r2y * r2y + r2z * r2z);
   const r0x = B[0] - A[0], r0y = B[1] - A[1], r0z = B[2] - A[2];
   const l2 = r0x * r0x + r0y * r0y + r0z * r0z;
-  if (c2 < core * core * l2 || r1 < 1e-9 || r2 < 1e-9) return;
-  const k = (r0x * (r1x / r1 - r2x / r2) + r0y * (r1y / r1 - r2y / r2) + r0z * (r1z / r1 - r2z / r2)) / (4 * Math.PI * c2);
+  if (r1 < 1e-9 || r2 < 1e-9) return;
+  // core < 0.01 mm: plain cut-off; larger cores smooth the kernel (used between different surfaces,
+  // where a trailing vortex can pass arbitrarily close to another surface's control point)
+  if (core < 0.01 && c2 < core * core * l2) return;
+  const k = (r0x * (r1x / r1 - r2x / r2) + r0y * (r1y / r1 - r2y / r2) + r0z * (r1z / r1 - r2z / r2)) / (4 * Math.PI * (c2 + (core >= 0.01 ? core * core * l2 : 0)));
   out[0] += k * cx; out[1] += k * cy; out[2] += k * cz;
 }
 const FAR = 1e6;
@@ -57,20 +60,20 @@ function solveVLM(L, res) {
         const A = [S0.x + ub * S0.c, S0.y, S0.z], B = [S1.x + ub * S1.c, S1.y, S1.z];
         const C = [(S0.x + uc * S0.c + S1.x + uc * S1.c) / 2, (S0.y + S1.y) / 2, (S0.z + S1.z) / 2];
         const delta = strip.twist * D2R - (blendSlope(S0, uc) + blendSlope(S1, uc)) / 2;
-        const pn = {A, B, C, n0, delta, trim: sf.trim, ly: B[1] - A[1], xm: (A[0] + B[0]) / 2, strip: strips.length, core: 0.02};
+        const pn = {A, B, C, n0, delta, trim: sf.trim, ly: B[1] - A[1], xm: (A[0] + B[0]) / 2, strip: strips.length, surf: sf.name};
         strip.panels.push(panels.length); panels.push(pn);
       }
       sf.strips.push(strips.length); strips.push(strip);
     }
   }
-  const N = panels.length, M = [];
+  const N = panels.length, M = [], crossCore = 0.006 * L.p.span;
   const v = [0, 0, 0];
   for (let i = 0; i < N; i++) {
     const row = new Float64Array(N), Pi = panels[i];
     for (let j = 0; j < N; j++) {
       v[0] = v[1] = v[2] = 0;
       const Pj = panels[j];
-      horseshoe(Pi.C, Pj.A, Pj.B, v, 1e-4);
+      horseshoe(Pi.C, Pj.A, Pj.B, v, Pi.surf === Pj.surf ? 1e-4 : crossCore);
       row[j] = v[1] * Pi.n0[1] + v[2] * Pi.n0[2];
     }
     M.push(row);
@@ -105,15 +108,16 @@ function solveVLM(L, res) {
         const g = (k > 0 ? G[k - 1] : 0) - (k < ids.length ? G[k] : 0);
         const st = strips[ids[Math.min(k, ids.length - 1)]];
         const y = k < ids.length ? st.y0 : st.y1, z = k < ids.length ? st.z0 : st.z1;
-        edges.push([y, z, g], [-y, z, -g]);
+        edges.push([y, z, g, sf.name], [-y, z, -g, sf.name]);
       }
     }
     let sum = 0;
     for (const st of strips) {
       const G = st.g0 + alpha * st.ga;
       let w = 0;
-      for (const [ye, ze, g] of edges) {
-        const dy = st.y - ye, dz = st.z - ze, r2 = dy * dy + dz * dz + eps * eps;
+      for (const [ye, ze, g, sn] of edges) {
+        const e2 = sn === st.surf ? eps * eps : crossCore * crossCore;
+        const dy = st.y - ye, dz = st.z - ze, r2 = dy * dy + dz * dz + e2;
         w += (-g * dz * st.n0[1] + g * dy * st.n0[2]) / (2 * Math.PI * r2);
       }
       sum += G * w * st.ds;

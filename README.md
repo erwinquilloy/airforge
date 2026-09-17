@@ -16,7 +16,7 @@ Opening `index.html` directly from disk also works.
 
 ## What it does
 
-**Configurations.** Tapered or swept wings (including forward sweep), deltas and blended wing bodies, with optional root fairings. Conventional, T-tail, V-tail, twin-boom and tailless layouts. Nose tractor, pusher and twin wing-mounted motors. Ten starting templates: FPV cruiser, twin-boom pusher, twin-motor, swept flying wing, forward-swept twin, plank, delta, BWB, quadplane and tailsitter.
+**Configurations.** Tapered or swept wings (including forward sweep) and deltas, with an optional smooth wing-to-fuselage blend (chord and thickness grow into the fuselage side). Conventional, T-tail, V-tail, twin-boom and tailless layouts. Nose tractor, pusher and twin wing-mounted motors. Ten starting templates: FPV cruiser, twin-boom pusher, twin-motor, swept flying wing, forward-swept twin, plank, delta, blended long-range cruiser, quadplane and tailsitter.
 
 **Airfoils.** NACA 4- and 5-digit generators (including reflexed 5-digit sections for flying wings) and Selig/Lednicer `.dat` import from the UIUC database. Root, tip, body and tail sections blend along the span.
 
@@ -31,8 +31,8 @@ Opening `index.html` directly from disk also works.
 **Printable parts.**
 - Wings and tails split at automatic or user-placed cuts, with spar bores sized to the chosen carbon tube or rod, and blind joiner-pin pockets at every cut
 - Separate ailerons, elevons, elevators and rudders with a rounded pinned hinge, pin pockets in the wing and printed control horns
-- Servo pockets with glue-in servo frames and screw-on covers (M3 heat-set inserts); DS041MG-class, 9 g micro, slim or custom servos
-- Hollow fuselage shells with joiner sleeves, a replaceable FPV nose with camera cradle (spigot or 4 × M3 insert ring), battery and avionics hatches cut from the shell (front tongue plus magnet or screw latch), FPV deck and underslung pod lids on insert bosses
+- Servo pockets with glue-in servo frames and screw-on covers (M3 heat-set inserts); DS041MG-class, 9 g micro, slim or custom servos. Servo position, pocket offset and horn position, side and arm length are adjustable, and servos and horns can be dragged in the 3D view
+- Hollow fuselage shells with joiner sleeves, a replaceable FPV nose with camera cradle (spigot or 4 × M3 insert ring), battery and avionics hatches cut from the shell (front tongue plus magnet or screw latch), a swappable streamlined FPV canopy (blank, camera or GPS) over an avionics bay with a glue-in FC shelf, and an underslung pod on insert bosses
 - NACA-style intake duct inserts and exhaust ports that can be dragged anywhere on the fuselage, with a cooling-flow estimate
 - Glue-in battery tray with strap slots
 - Motor mounts with 9×9 to 30×30 square, 16/19 and 19/25 cross, combined or universal slotted hole patterns

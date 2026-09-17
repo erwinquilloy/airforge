@@ -27,7 +27,7 @@ function loadState() {
   for (const d of store.get("af2-foils") || []) { try { const f = parseDat(d.text, d.name); f.id = d.id; addFoil(f); S.importedDat.push(d); } catch (e) { /* skip broken import */ } }
   if (saved) for (const k in S.p) if (k in saved && (typeof saved[k] === typeof S.p[k] || (k === "components" && Array.isArray(saved[k])))) S.p[k] = saved[k];
   if (savedM) for (const k in S.m) if (k in savedM && typeof savedM[k] === typeof S.m[k]) S.m[k] = savedM[k];
-  for (const k of ["foilRoot", "foilTip", "foilBody", "foilTail"]) if (!FOILS[S.p[k]]) S.p[k] = defaultParams()[k];
+  for (const k of ["foilRoot", "foilTip", "foilTail"]) if (!FOILS[S.p[k]]) S.p[k] = defaultParams()[k];
   S.compare = store.get("af2-compare") || [];
   S.open = store.get("af2-open") || {};
 }
@@ -118,9 +118,9 @@ const Left = {
       body.appendChild(wrap);
     },
     foils(body) {
-      const rows = [["foilRoot", "Wing root", null], ["foilTip", "Wing tip", null], ["foilBody", "Center body", null], ["foilTail", "Tail surfaces", true]];
+      const rows = [["foilRoot", "Wing root", null], ["foilTip", "Wing tip", null], ["foilTail", "Tail surfaces", true]];
       for (const [id, label, sym] of rows) {
-        const f = {kind: "sel", id, label, options: () => foilOptions(sym), show: id === "foilBody" ? p => p.wingType === "bwb" : id === "foilTail" ? p => p.tailType !== "none" || p.tipFins : null};
+        const f = {kind: "sel", id, label, options: () => foilOptions(sym), show: id === "foilTail" ? p => p.tailType !== "none" || p.tipFins : null};
         const row = fieldRow(f, S.p, () => {}, id2 => App.changed(id2, true)); body.appendChild(row); this.rows.push(row);
       }
       const card = document.createElement("div");

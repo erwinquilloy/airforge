@@ -39,7 +39,7 @@ const Panels = {
 
   /* ---------------- Airframe ---------------- */
   air(A, B) {
-    const W = A.L.wing, groups = {wing: "Wing", ctrl: "Control surfaces & servos", tail: "Tail", fuse: "Fuselage & hatches", mount: "Mounts", vtol: "VTOL kit", cool: "Cooling & battery", jig: "Jigs"};
+    const W = A.L.wing, groups = {wing: "Wing", ctrl: "Control surfaces & servos", tail: "Tail", fuse: "Fuselage & hatches", mount: "Mounts, canopy & shelf", vtol: "VTOL kit", cool: "Cooling & battery", jig: "Jigs"};
     const rows = [...A.items].sort((a, b) => b.mass - a.mass), maxM = rows[0].mass;
     const bom = B.bom, pins = bom.pins.length;
     const byGroup = Object.entries(groups).map(([g, name]) => {

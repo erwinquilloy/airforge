@@ -10,7 +10,7 @@ const RES = {fine: {ns: 18, nc: 5, nsTail: 6}, coarse: {ns: 7, nc: 3, nsTail: 3}
 
 /* VLM results depend only on the airframe shape: cache them across power, balance and mission changes */
 const AERO_CACHE = new Map();
-const AERO_KEYS = SCHEMA.filter(f => f.tab === "air" && ["cfg", "wing", "tail", "fuse"].includes(f.group)).map(f => f.id).concat(["foilRoot", "foilTip", "foilBody", "foilTail"]);
+const AERO_KEYS = SCHEMA.filter(f => f.tab === "air" && ["cfg", "wing", "tail", "fuse"].includes(f.group)).map(f => f.id).concat(["foilRoot", "foilTip", "foilTail"]);
 function cachedVLM(L, p, resName) {
   const key = resName + "|" + AERO_KEYS.map(k => p[k]).join("|");
   let a = AERO_CACHE.get(key);
@@ -32,7 +32,7 @@ function analyze(p, opts = {}) {
     for (let k = 0; k < st.length - 1; k++) {
       const a = st[k], b = st[k + 1], ds = Math.hypot(b.y - a.y, b.z - a.z), c = (a.c + b.c) / 2;
       const per = (lerp(a.fA.perC, a.fB.perC, a.s) + lerp(b.fA.perC, b.fB.perC, b.s)) / 2;
-      const ar = (lerp(a.fA.areaC, a.fB.areaC, a.s) + lerp(b.fA.areaC, b.fB.areaC, b.s)) / 2;
+      const ar = (lerp(a.fA.areaC, a.fB.areaC, a.s) * (a.thick || 1) + lerp(b.fA.areaC, b.fB.areaC, b.s) * (b.thick || 1)) / 2;
       const mass = (per * c * ds * p.wall + ar * c * c * ds * p.infill / 100) * gmm3 * 1.06;
       m += mass; mx += mass * ((a.x + b.x) / 2 + 0.42 * c);
     }
@@ -70,7 +70,7 @@ function analyze(p, opts = {}) {
     if (mo.mount === "pylon") add("Motor pylon", (mo.pos[2] - mo.pylonBase) * 40 * 4 * petg * 0.6 + 6, mo.pos[0] - 15, "structure");
   }
   let deckF = 0, podWet = 0;
-  if (p.deck) { add("FPV deck", (p.deckLen * p.deckW * 2.5 + 2 * p.deckLen * 6 * 2) * petg * 0.5, L.xw + p.deckX + p.deckLen / 2, "structure"); deckF = 0.25 * 25 * p.deckW; }
+  if (p.deck) { add("FPV canopy & FC shelf", p.deckLen * (p.deckW + 2.2 * p.canopyH) * 1.2 * gmm3 + (p.fcShelf ? p.deckLen * p.deckW * 2 * petg * 0.5 : 0), L.xw + p.deckX + p.deckLen / 2, "structure"); deckF = 0.12 * p.deckW * p.canopyH; }
   if (p.pod) { podWet = Math.PI * p.podD * p.podL * 0.8; add("Underslung pod", podWet * 1.0 * petg * 0.8 + 8, L.xw + p.podX + p.podL / 2, "structure"); }
   if (p.gpsMast) add("GPS mast", 8 + p.mastH * 0.12, L.xw + 40, "structure");
 
@@ -100,13 +100,13 @@ function analyze(p, opts = {}) {
 
   /* ---------- servos, avionics, battery, payload ---------- */
   const servo = p.servoType === "custom" ? {mass: p.servoMass} : SERVOS[p.servoType] || SERVOS.ds041;
-  const wHinge = W.wingAt(W.half * (p.csStart + 0.1));
+  const wHinge = W.wingAt(W.half * lerp(p.csStart, p.csEnd, p.servoPos));
   add("Wing servos", servo.mass * 2, wHinge.x + (p.hingePos - 0.1) * wHinge.c, "systems");
   if (p.ctrlSurf) add("Servo frames, covers, horns", 2 * 6 + (L.tailless ? 0 : 2 * 1.5), wHinge.x + p.hingePos * wHinge.c, "structure");
   if (!L.tailless) add("Tail servos", servo.mass * 2, L.hasFuse ? W.xacW + 0.3 * L.tail.arm : W.xacW + L.tail.arm * 0.8, "systems");
   if (L.hasFuse && p.battTray) add("Battery tray", 12, L.xw + p.battX, "structure");
   if (L.hasFuse && p.intake) add("NACA duct insert", 6 * (p.intakeMirror ? 2 : 1), p.intakeX + p.intakeL / 2, "structure");
-  const nInserts = (p.deck ? 4 : 0) + (p.pod ? 4 : 0) + (p.ctrlSurf ? 4 : 0) + (p.vtol === "quad" ? 4 : 0) + (p.motorLayout === "tractor" ? 4 : 0);
+  const nInserts = (p.deck && p.hatchLatch === "screws" ? 2 : 0) + (p.pod ? 4 : 0) + (p.ctrlSurf ? 4 : 0) + (p.vtol === "quad" ? 4 : 0) + (p.motorLayout === "tractor" ? 4 : 0);
   add("Heat-set inserts & screws", nInserts * 1.1, W.xacW, "structure");
   const noseX = L.hasFuse ? camX : L.xw + 30;
   for (const c of p.components) add(c.name, +c.mass || 0, c.x == null || c.x === "" ? noseX : L.xw + (+c.x), "systems");
@@ -118,17 +118,16 @@ function analyze(p, opts = {}) {
 
   /* ---------- spar sizing (needs total weight: iterate) ---------- */
   const fitAt = (y, pos) => {                                          // local depth available at the spar line
-    const w = W.wingAt(y), t = lerp(thicknessAt(w.fA, pos), thicknessAt(w.fB, pos), w.s);
+    const w = W.wingAt(y), t = lerp(thicknessAt(w.fA, pos), thicknessAt(w.fB, pos), w.s) * (w.thick || 1);
     return t * w.c;
   };
   let mtow = items.reduce((s, i) => s + i.mass, 0), tubes = [], sparM = 0, M_root = 0;
   for (let it = 0; it < 3; it++) {
     M_root = p.loadFactor * mtow / 1000 * G0 * aero.rootMomentPerLift;
-    const minRoot = Math.min(...[0, W.bw2, W.y0, W.half * 0.15].map(y => fitAt(Math.min(y, W.half), p.sparPos)));
     const share = p.spar2Pos > 0 ? [0.72, 0.28] : [1];
     const pos = p.spar2Pos > 0 ? [p.sparPos, p.spar2Pos] : [p.sparPos];
     tubes = pos.map((ps, i) => {
-      const depth = Math.min(...[0, W.bw2, W.y0, W.half * 0.15].map(y => fitAt(Math.min(y, W.half), ps)));
+      const depth = Math.min(...[W.blendEnd, W.half * 0.15].map(y => fitAt(Math.min(y, W.half), ps)));
       const wallNeed = d => d + 2 * p.fitClear + 2.4;
       const manual = tubeFromKey(i ? p.spar2Size : p.spar1Size);
       const auto = TUBES.find(tb => M_root * share[i] / tubeZ(tb) <= CARBON_ALLOW && wallNeed(tb[0]) <= depth);
@@ -140,7 +139,6 @@ function analyze(p, opts = {}) {
     });
     sparM = tubes.reduce((s, t) => s + tubeMassPerM(t.tube) * t.len / 1000, 0);
     mtow = items.reduce((s, i) => s + i.mass, 0) + sparM;
-    void minRoot;
   }
   add("Carbon spars", sparM, W.wingAt(W.half * 0.3).x + p.sparPos * W.wingAt(W.half * 0.3).c, "structure");
   mtow = items.reduce((s, i) => s + i.mass, 0);
