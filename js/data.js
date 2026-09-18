@@ -232,8 +232,8 @@ const SCHEMA = [
     "How far the cover may stand proud of the surface to house a servo the panel cannot swallow. 0 = the servo must fit inside the section."),
   SEL("air", "ctrl", "servoOrient", "Wing servo orientation", [["auto", "Auto (stand if the wing is thick enough)"], ["stand", "Standing"], ["flat", "Lying flat"]], "auto", p => p.ctrlSurf),
   // ---- your own geometry
-  T("air", "spars", "fuseHoles", "Cut spar and wire holes in the fuselage", true, hasFuse,
-    "A spar or a wire channel that reaches the fuselage needs a hole in the shell on that side. Off = the shell is left closed and you drill it yourself."),
+  T("air", "spars", "fuseHoles", "Cut spar and wire holes in the fuselage", false, hasFuse,
+    "A spar or a wire channel that crosses the fuselage has to get through the shell. Cutting the hole leaves a slot in the side, which the wing root covers once the wing is on. Off (the default) keeps the shell closed and writes the position and size into the build sheet so you can drill it to fit."),
   T("air", "user", "refShow", "Show the reference model", true, () => !!(typeof USER !== "undefined" && USER.ref)),
   F("air", "user", "refScale", "Reference scale", "×", 0.05, 10, 0.01, 1, () => !!(typeof USER !== "undefined" && USER.ref)),
   F("air", "user", "refX", "Reference offset — nose to tail", "mm", -3000, 3000, 1, 0, () => !!(typeof USER !== "undefined" && USER.ref)),

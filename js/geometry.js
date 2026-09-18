@@ -968,10 +968,17 @@ function buildAircraft(A, opts = {}) {
       for (const ang of mirrorAngs(p.exhaustAng, p.exhaustMirror)) addOpening("ex" + ang.toFixed(2), p.exhaustX, p.exhaustX + len, ang, w, "exhaust");
     }
 
-    /* spar pass-throughs: a tube crossing the fuselage needs a hole in both sides */
-    if (p.fuseHoles !== false) sparPorts.forEach((sp, i) => {
+    /* A tube crossing the fuselage has to get through the shell. Cutting the hole leaves a slot
+       in the side, which the wing root covers once it is on; leaving it closed keeps the shell
+       clean and the position is written into the build sheet so it can be drilled to fit. */
+    sparPorts.forEach((sp, i) => {
       const xc = Math.max(8, Math.min(sp.x, F.L - 8)), [, hh, zc] = F.profile(xc), rp = sp.d / 2 + 1.2;
       if (Math.abs(sp.z - zc) > hh + 6) return;
+      if (p.fuseHoles === false) {
+        L.note("Structure", `Drill for the ${sp.label}: ${fmtN(sp.d + 0.6, 1)} mm through both sides, ${fmtN(xc)} mm from the nose and `
+          + `${fmtN(Math.abs(sp.z - zc), 1)} mm ${sp.z >= zc ? "above" : "below"} the fuselage centreline. The wing root covers it.`);
+        return;
+      }
       for (const sg of [1, -1]) {
         const ang = Math.atan2((sp.z - zc) / Math.max(1, hh) * 0.5, sg);
         if (!addOpening(`spar${i}_${sg}`, xc - rp, xc + rp, ang, rp, `${sp.label} pass-through`, true))
@@ -980,9 +987,14 @@ function buildAircraft(A, opts = {}) {
     });
 
     /* wire pass-throughs: a slot in the shell where a channel meets a root face */
-    if (p.wireCh && p.fuseHoles !== false) wirePorts.forEach((wp, i) => {
+    if (p.wireCh) wirePorts.forEach((wp, i) => {
       const xc = Math.max(10, Math.min(wp.x, F.L - 10)), [hw, hh, zc] = F.profile(xc), rp = (wp.d || p.wireD) / 2 + 1.6;
-      if (Math.abs(wp.z - zc) > hh + 8) return;                         // that root face is nowhere near the shell
+      if (Math.abs(wp.z - zc) > hh + 8) return;
+      if (p.fuseHoles === false) {
+        L.note("Systems", `Drill for the ${wp.label}: ${fmtN((wp.d || p.wireD) + 1, 1)} mm, ${fmtN(xc)} mm from the nose and `
+          + `${fmtN(Math.abs(wp.z - zc), 1)} mm ${wp.z >= zc ? "above" : "below"} the centreline${wp.lateral ? ", one each side" : " on top"}.`);
+        return;
+      }                         // that root face is nowhere near the shell
       const sides = wp.lateral ? (wp.y === undefined ? [1, -1] : [Math.sign(wp.y) || 1]) : [0];
       for (const sg of sides) {
         const ang = wp.lateral ? Math.atan2((wp.z - zc) / Math.max(1, hh) * 0.5, sg) : Math.PI / 2;

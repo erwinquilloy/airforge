@@ -14,7 +14,7 @@ function foilOf(id, fallback) { return FOILS[id] || FOILS[fallback]; }
 
 function makeLayout(p) {
   const log = [];                                     // design rationale ("why this dimension")
-  const note = (topic, text) => log.push([topic, text]);
+  const note = (topic, text) => { if (!log.some(q => q[0] === topic && q[1] === text)) log.push([topic, text]); };   // never say the same thing twice
   const fRoot = foilOf(p.foilRoot, "naca2412"), fTip = foilOf(p.foilTip, "naca2412");
   const fTail = foilOf(p.foilTail, "naca0009");
   const hasFuse = p.fuseType !== "none";
