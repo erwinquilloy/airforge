@@ -109,7 +109,7 @@ const SCHEMA = [
   F("air", "wing", "blendSpan", "Blend length (from fuselage side)", "mm", 10, 300, 1, 70, p => hasFuse(p) && p.wingBlend),
   F("air", "wing", "blendChord", "Chord growth at the fuselage", "×", 1, 2.2, 0.01, 1.35, p => hasFuse(p) && p.wingBlend),
   F("air", "wing", "blendThick", "Thickness growth at the fuselage", "×", 1, 3, 0.05, 1.8, p => hasFuse(p) && p.wingBlend),
-  T("air", "wing", "tipFins", "Tip fins / winglets", true),
+  T("air", "wing", "tipFins", "Tip fins / winglets", false, null, "Standard on a tailless wing, which needs the yaw damping; a tailed aircraft already has a fin, so this is off unless you ask for it."),
   F("air", "wing", "tipFinH", "Tip fin / winglet height", "mm", 20, 300, 5, 110, p => p.tipFins),
   F("air", "wing", "wingletCant", "Winglet cant from vertical", "°", 0, 75, 1, 0, p => p.tipFins),
   // ---- tail

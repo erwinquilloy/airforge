@@ -261,6 +261,19 @@ const App = {
       files.push({name: "avl/aircraft.avl", data: enc.encode(avl.text)});
       const foils = new Set([A.L.wing.fRoot, A.L.wing.fTip, A.L.fTail, ...avl.foils]);
       for (const f of foils) { files.push({name: `avl/airfoils/${f.id}.dat`, data: enc.encode(datText(f))}); }
+      /* the two solvers people take this to next: flow5 for polars and stability,
+         OpenFOAM for a real viscous run against the same STL */
+      files.push({name: "flow5/aircraft.xml", data: enc.encode(flow5Xml(A))});
+      for (const f of foils) files.push({name: `flow5/airfoils/${f.id}.dat`, data: enc.encode(datText(f))});
+      const metres = new Float32Array(all.length), bb = {mn: [1e9, 1e9, 1e9], mx: [-1e9, -1e9, -1e9]};
+      for (let i = 0; i < all.length; i++) {
+        metres[i] = all[i] / 1000;
+        const k = i % 3;
+        if (all[i] < bb.mn[k]) bb.mn[k] = all[i];
+        if (all[i] > bb.mx[k]) bb.mx[k] = all[i];
+      }
+      files.push({name: "openfoam/constant/triSurface/aircraft.stl", data: stlBinary(metres, "aircraft")});
+      for (const f of openfoamCase(A, bb)) files.push({name: f.name, data: enc.encode(f.text)});
       files.push({name: "build_sheet.txt", data: enc.encode(buildSheet(A, B))});
       files.push({name: "design.json", data: enc.encode(JSON.stringify({generator: "Airframe Forge", params: S.p, mission: S.m, results: {mtow_g: A.mtow, stall_ms: A.perf.Vs, cruise_ms: A.perf.cruise && A.perf.cruise.V, endurance_min: A.perf.endurance, range_km: A.perf.range, cg_mm_from_le: A.xcg - A.L.xw, np_mm_from_le: A.xnp - A.L.xw}}, null, 2))});
       const zip = makeZip(files), filename = `airframe-forge-${S.p.template || "custom"}-${Math.round(S.p.span)}mm.zip`;
