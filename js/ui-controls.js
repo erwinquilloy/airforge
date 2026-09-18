@@ -149,6 +149,94 @@ const Left = {
       add.querySelector("#datAdd").onclick = () => importDat(add.querySelector("#datIn").value);
       add.querySelector("#datFile").onchange = e => { const file = e.target.files[0]; if (file) file.text().then(t => importDat(t, file.name.replace(/\.\w+$/, ""))); };
     },
+    user(body) {
+      const wrap = document.createElement("div");
+      wrap.className = "uparts";
+      const fld = (cp, i, k, label, step) =>
+        `<label class="ufld"><span>${label}</span><input type="number" step="${step || 1}" data-k="${k}" data-i="${i}" value="${cp[k] || 0}"></label>`;
+      const draw = () => {
+        const list = S.p.customParts || [];
+        wrap.innerHTML = `<p class="hint">Your own printed parts are placed on the aircraft, weighed into the balance and written into the export with everything else. A reference model is only a ghost to size your design against: never analysed, never exported.</p>
+          <div class="row-btns">
+            <label class="btn sm" for="upPart">Upload STL part</label><input id="upPart" type="file" accept=".stl" hidden>
+            <label class="btn sm" for="upRef">${USER.ref ? "Replace" : "Upload"} reference model</label><input id="upRef" type="file" accept=".stl" hidden>
+            ${USER.ref ? `<button class="btn sm" id="refDrop">Remove reference</button>` : ""}
+          </div>
+          ${USER.ref ? `<p class="hint">Reference: <b>${esc(USER.ref.name)}</b>, ${fmt(USER.ref.tris.length / 9)} triangles. Line it up with the offsets below.</p>` : ""}
+          ${list.length ? list.map((cp, i) => {
+            const t = userTris(cp), b = t ? trisBounds(t) : null;
+            return `<div class="upart">
+              <div class="upart-h"><b>${esc(cp.name)}</b><button class="btn xs" data-act="del" data-i="${i}">Remove</button></div>
+              <div class="upart-g">${fld(cp, i, "x", "x (nose→tail)")}${fld(cp, i, "y", "y (span)")}${fld(cp, i, "z", "z (up)")}
+                ${fld(cp, i, "scale", "scale", 0.01)}${fld(cp, i, "rx", "rot x°")}${fld(cp, i, "ry", "rot y°")}${fld(cp, i, "rz", "rot z°")}${fld(cp, i, "mass", "mass g")}</div>
+              <div class="row-btns">
+                <label class="chk"><input type="checkbox" data-k="mirror" data-i="${i}"${cp.mirror ? " checked" : ""}> Mirror to the other side</label>
+                <label class="chk"><input type="checkbox" data-k="include" data-i="${i}"${cp.include !== false ? " checked" : ""}> Include</label>
+                <button class="btn xs" data-act="est" data-i="${i}">Estimate mass</button>
+              </div>
+              ${b ? `<p class="hint">${fmt(b.size[0])} × ${fmt(b.size[1])} × ${fmt(b.size[2])} mm as placed, centred at x ${fmt((b.mn[0] + b.mx[0]) / 2)} mm.</p>` : ""}
+            </div>`;
+          }).join("") : `<p class="hint">Nothing uploaded yet.</p>`}`;
+      };
+      const refresh = () => { draw(); App.saveUser(); App.changed("customParts", true); Left.sync(); };
+      const read = (file, cb) => {
+        const r = new FileReader();
+        r.onload = () => cb(r.result);
+        r.onerror = () => toast("That file could not be read.");
+        r.readAsArrayBuffer(file);
+      };
+      wrap.addEventListener("change", e => {
+        const f = e.target;
+        if (f.id === "upPart" && f.files[0]) {
+          const file = f.files[0];
+          read(file, buf => {
+            let tris;
+            try { tris = parseSTL(buf); } catch (err) { toast(err.message); return; }
+            const id = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            USER.mesh[id] = tris;
+            const cp = {id, name: file.name.replace(/\.stl$/i, "").slice(0, 40) || "part", x: 0, y: 0, z: 0, scale: 1, rx: 0, ry: 0, rz: 0, mass: 0, mirror: false, include: true};
+            cp.mass = userMassGuess(cp, MATERIALS[S.p.material]);
+            S.p.customParts = (S.p.customParts || []).concat([cp]);
+            const b = trisBounds(tris);
+            toast(`${cp.name}: ${fmt(b.size[0])} × ${fmt(b.size[1])} × ${fmt(b.size[2])} mm, ${fmt(tris.length / 9)} triangles, ${cp.mass} g estimated. Place it with the offsets.`);
+            refresh();
+          });
+          f.value = "";
+          return;
+        }
+        if (f.id === "upRef" && f.files[0]) {
+          const file = f.files[0];
+          read(file, buf => {
+            try { USER.ref = {name: file.name.replace(/\.stl$/i, ""), tris: parseSTL(buf)}; } catch (err) { toast(err.message); return; }
+            S.p.refShow = true;
+            toast(`Reference ${USER.ref.name} loaded. It is a ghost only: never analysed, never exported.`);
+            refresh();
+          });
+          f.value = "";
+          return;
+        }
+        const i = +f.dataset.i, k = f.dataset.k;
+        if (!(i >= 0) || !k) return;
+        const cp = S.p.customParts[i];
+        if (!cp) return;
+        cp[k] = f.type === "checkbox" ? f.checked : +f.value || 0;
+        refresh();
+      });
+      wrap.addEventListener("click", e => {
+        const b2 = e.target.closest("[data-act]");
+        if (b2) {
+          const i = +b2.dataset.i, cp = S.p.customParts[i];
+          if (!cp) return;
+          if (b2.dataset.act === "del") { delete USER.mesh[cp.id]; S.p.customParts.splice(i, 1); }
+          else if (b2.dataset.act === "est") cp.mass = userMassGuess(cp, MATERIALS[S.p.material]);
+          refresh();
+          return;
+        }
+        if (e.target.id === "refDrop") { USER.ref = null; refresh(); }
+      });
+      draw();
+      body.appendChild(wrap);
+    },
     lab(body) {
       body.innerHTML = `<p class="hint">Ranks every motor class, propeller and cell count for this airframe with the stored battery energy held constant. Rows that break a current, C-rate, tip-speed or thrust limit are dropped.</p>
         <div class="fld"><label for="labObj">Rank by</label><select id="labObj">${Object.entries(LAB_OBJ).map(([k, v]) => `<option value="${k}"${S.lab.obj === k ? " selected" : ""}>${v.label}</option>`).join("")}</select></div>

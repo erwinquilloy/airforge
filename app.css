@@ -3,7 +3,7 @@
   --rule:#cdd5d9; --rule2:#dfe5e8; --accent:#d9531e; --accent-soft:#f5dccf;
   --s1:#1f6fae; --s2:#d9531e; --s3:#7b5ea7;
   --good:#2f7d4f; --warn:#a86a00; --bad:#b3261e; --good-soft:#dcefe3; --warn-soft:#f6e9cc; --bad-soft:#f6d9d6;
-  --view:#dfe5e8; --grid:#b7c2c7; --part-a:#f1f3f3; --part-b:#c3d0d6; --part-ctrl:#cf7033; --part-open:#9c4361; --part-mount:#1479b0; --part-vtol:#b098f0; --part-cool:#4cbf9b;
+  --view:#dfe5e8; --grid:#b7c2c7; --part-a:#f1f3f3; --part-b:#c3d0d6; --part-ctrl:#cf7033; --part-open:#9c4361; --part-user:#4e5d00; --part-mount:#1479b0; --part-vtol:#b098f0; --part-cool:#4cbf9b;
   --carbon:#2a2f33; --motor:#59636a;
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
   --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -15,7 +15,7 @@
     --rule:#2b363b; --rule2:#222b2f; --accent:#ff7a45; --accent-soft:#3a2219;
     --s1:#3f9ad8; --s2:#e0622c; --s3:#9679d0;
     --good:#6cc08e; --warn:#e0a83c; --bad:#f07d74; --good-soft:#17301f; --warn-soft:#33280f; --bad-soft:#3a1b18;
-    --view:#11171a; --grid:#29343a; --part-a:#aeb9be; --part-b:#6d838d; --part-ctrl:#c87a30; --part-open:#a04b70; --part-mount:#3567aa; --part-vtol:#9d80d0; --part-cool:#23a07f;
+    --view:#11171a; --grid:#29343a; --part-a:#aeb9be; --part-b:#6d838d; --part-ctrl:#c87a30; --part-open:#a04b70; --part-user:#6e6105; --part-mount:#3567aa; --part-vtol:#9d80d0; --part-cool:#23a07f;
     --carbon:#0b0d0e; --motor:#8a959b;
   }
 }
@@ -24,7 +24,7 @@
   --rule:#2b363b; --rule2:#222b2f; --accent:#ff7a45; --accent-soft:#3a2219;
   --s1:#3f9ad8; --s2:#e0622c; --s3:#9679d0;
   --good:#6cc08e; --warn:#e0a83c; --bad:#f07d74; --good-soft:#17301f; --warn-soft:#33280f; --bad-soft:#3a1b18;
-  --view:#11171a; --grid:#29343a; --part-a:#aeb9be; --part-b:#6d838d; --part-ctrl:#c87a30; --part-open:#a04b70; --part-mount:#3567aa; --part-vtol:#9d80d0; --part-cool:#23a07f;
+  --view:#11171a; --grid:#29343a; --part-a:#aeb9be; --part-b:#6d838d; --part-ctrl:#c87a30; --part-open:#a04b70; --part-user:#6e6105; --part-mount:#3567aa; --part-vtol:#9d80d0; --part-cool:#23a07f;
   --carbon:#0b0d0e; --motor:#8a959b;
 }
 *{box-sizing:border-box}
@@ -193,3 +193,16 @@ ol.log b{color:var(--ink);font-weight:600}
   .tpl-grid{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* uploaded geometry: your own parts and a reference model */
+.bar-btns{display:flex;gap:8px;align-items:center}
+.btn.xs{padding:3px 8px;font-size:11.5px;border-radius:5px}
+.chk{display:inline-flex;gap:5px;align-items:center;font-size:12px;color:var(--ink2)}
+.chk input{accent-color:var(--accent);width:14px;height:14px;margin:0}
+.uparts{display:grid;gap:8px}
+.upart{border:1px solid var(--rule);border-radius:6px;padding:8px;background:var(--raise);display:grid;gap:6px}
+.upart-h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.upart-h b{font-family:var(--f-display);font-size:13.5px;letter-spacing:.03em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.upart-g{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.ufld{display:grid;gap:2px;font-size:10.5px;color:var(--muted)}
+.ufld input{width:100%;border:1px solid var(--rule);border-radius:4px;background:var(--ground);padding:3px 4px;font-family:var(--f-mono);font-size:11px;color:var(--ink)}

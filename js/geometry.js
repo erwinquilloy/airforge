@@ -221,9 +221,17 @@ function buildAircraft(A, opts = {}) {
      around it. One tube per side may instead follow each panel's own sweep and dihedral. */
   const kinkSeg = W.cranked ? bounds.findIndex(v => Math.abs(v - W.yk) < 12) : -1;
   const spars = [];
-  const fitsAt = (y, lx, lzCanon, r) => {
+  /* The hinge line and the servo pocket are known before the control surface is cut, so a bore is
+     never placed inside the aileron or through the space the servo has to live in. */
+  const servo = p.servoType === "custom" ? {L: p.servoL, W: p.servoW, H: p.servoH, mass: p.servoMass} : SERVOS[p.servoType] || SERVOS.ds041;
+  const uHinge = p.ctrlSurf ? XG.reduce((best, x) => Math.abs(x - p.hingePos) < Math.abs(best - p.hingePos) ? x : best, XG[0]) : 1;
+  const csFrom = p.ctrlSurf ? p.csStart * half : Infinity, csTo = p.ctrlSurf ? p.csEnd * half : -Infinity;
+  const pocketBand = p.ctrlSurf ? Math.max(servo.H, servo.W) + 4.8 + p.servoGap : 0;   // enough for the servo lying flat
+  const fitsAt = (y, lx, lzCanon, r, intoPocket) => {
     const w = W.wingAt(y), u = (lx - w.x) / w.c;
     if (u < 0.05 || u > 0.9) return false;
+    const keep = r + 4 + (intoPocket ? 0 : pocketBand);                // a wire channel ends in the pocket; a spar may not
+    if (y >= csFrom - 20 && y <= csTo + 20 && u > uHinge - keep / w.c) return false;
     const [up, lo] = skin(w, u);
     return up - r - 1.2 >= lzCanon && lo + r + 1.2 <= lzCanon;
   };
@@ -255,9 +263,15 @@ function buildAircraft(A, opts = {}) {
      wingtip spars beside its 10 x 1000 mm main spars, all retained by the printed parts. */
   const tipSpar = (run, nm) => {
     if (!p.sparStep) return;
-    const yHi = half * 0.97, lap = Math.max(25, 0.07 * half);
-    const from = Math.max(run.yStart + 30, run.yEnd - lap);
-    if (yHi - from < 90) return;                                       // nothing worth a second tube
+    const lap = Math.max(25, 0.07 * half);
+    const from0 = Math.max(run.yStart + 30, run.yEnd - lap), yHi0 = half * 0.97;
+    if (yHi0 - from0 < 90) return;                                     // nothing worth a second tube
+    /* a tube cannot bend, so it stays within one panel of a cranked wing */
+    const kink = W.cranked && W.yk > 10 && W.yk < half - 10 ? W.yk : 0;
+    const mid0 = (from0 + yHi0) / 2;
+    const from = kink && mid0 > kink ? Math.max(from0, kink + 2) : from0;
+    const yHi = kink && mid0 <= kink ? Math.min(yHi0, kink - 2) : yHi0;
+    if (yHi - from < 90) return;
     const seed = (from + yHi) / 2, anchor = W.wingAt(seed);
     let best = null;
     for (const tube of [run.tube, ...TUBES.filter(q => q[0] < run.tube[0]).reverse()]) {
@@ -347,7 +361,10 @@ function buildAircraft(A, opts = {}) {
       const picked = askedReach >= (y1 - y0) * 0.75 + y0 || !best || best.reach < askedReach + 0.15 * half ? Object.assign(asked, {reach: askedReach}) : best;
       const line = picked.line, end = picked.reach;
       if (end <= y0 + 20) return;
-      if (crosses(line, r, end)) { warns.push(nm + ": no room for a tube in this panel clear of the other spar; move one of the spar positions."); return; }
+      if (crosses(line, r, end)) {
+        if (ri === 0) warns.push(nm + ": no room for a tube in the inner panel clear of the other spar; move one of the spar positions.");
+        return;                                                        // an outer panel is picked up by the wingtip spar
+      }
       const run = {id: id * 4 + ri + 1, tube: t.tube, yStart: y0, yEnd: end, line, r, continuous: false, axis: "a" + id + "_" + ri};
       if (socketing && y0 < 1) {
         const sock = socketFor(t.tube[0]);
@@ -416,7 +433,6 @@ function buildAircraft(A, opts = {}) {
   }
 
   /* servo, VTOL hardpoint pockets */
-  const servo = p.servoType === "custom" ? {L: p.servoL, W: p.servoW, H: p.servoH, mass: p.servoMass} : SERVOS[p.servoType] || SERVOS.ds041;
   const bays = [];
   const makeBay = (id, sMid, lenS, xFront, xBack, depth, side, kind, meta) => {
     const w = W.wingAt(sMid), ua = (xFront - w.x) / w.c, ub = (xBack - w.x) / w.c;
@@ -425,17 +441,38 @@ function buildAircraft(A, opts = {}) {
   };
   if (wcs) {
     const wm = W.wingAt((wcs.a + wcs.b) / 2), [zu, zl] = skin(wm, wcs.uH - 0.12), thick = zu - zl;
-    const stand = p.servoOrient === "stand" || (p.servoOrient === "auto" && thick >= servo.H + 3);
-    const chord = (stand ? servo.W : servo.H) + 2 * 2.4 + 0.4, depth = (stand ? servo.H : servo.W) + 1, lenS = servo.L + 22 + 0.4;
+    const canStand = p.servoOrient === "stand" || (p.servoOrient === "auto" && thick >= servo.H + 3);
+    const lenS = servo.L + 22 + 0.4;
     let sMid = lerp(wcs.a + lenS / 2 + 2, Math.max(wcs.a + lenS / 2 + 2, wcs.b - lenS / 2 - 2), p.servoPos);
     const seg = bounds.findIndex((v, i) => i < bounds.length - 1 && sMid >= v && sMid < bounds[i + 1]);
     const lo = bounds[seg] + (pin ? p.pinDepth : 0) + 4 + lenS / 2, hi = bounds[seg + 1] - (pin ? p.pinDepth : 0) - 4 - lenS / 2;
     if (hi > lo) sMid = Math.min(hi, Math.max(lo, sMid));
-    const xBack = wm.x + wcs.uH * wm.c - 3, xFront = xBack - chord;
-    const bay = makeBay("servo", sMid, lenS, W.wingAt(sMid).x + (wcs.uH * W.wingAt(sMid).c - p.servoGap - chord), W.wingAt(sMid).x + wcs.uH * W.wingAt(sMid).c - p.servoGap, depth, "bottom", "servo", {stand, servo});
-    void xFront;
-    if (bay && !sparXAt(sMid).some(([sx, sr]) => sx + sr + 2 > W.wingAt(sMid).x + bay.ua * W.wingAt(sMid).c)) bays.push(bay);
-    else warns.push("The servo pocket collides with a spar; move the hinge line aft or the spar forward.");
+    /* Fit the pocket between the rear spar and the hinge. A straight spar sits at a different
+       chord fraction out here than at the root, so the room asked for inboard may not be free:
+       slide the pocket toward the hinge, then inboard where the chord is deeper, and stand the
+       servo up where the section allows — whichever combination actually fits. */
+    const sWant = sMid, sIn = wcs.a + lenS / 2 + 2, sOut = Math.max(sIn, wcs.b - lenS / 2 - 2);
+    let bay = null, usedGap = p.servoGap, stand = false, usedS = sMid;
+    for (let step = 0; step <= 24 && !bay; step++) {
+      const sTry = Math.min(sOut, Math.max(sIn, sWant - step * 12));
+      const wT = W.wingAt(sTry), xH = wT.x + wcs.uH * wT.c;
+      const sk = skin(wT, wcs.uH - 0.12), deep = sk[0] - sk[1] >= servo.H + 3;
+      const ways = p.servoOrient === "flat" ? [false] : p.servoOrient === "stand" ? [true] : deep ? [true, false] : [false];
+      for (const upright of ways) {
+        const chord = (upright ? servo.W : servo.H) + 2 * 2.4 + 0.4, depth = (upright ? servo.H : servo.W) + 1;
+        for (let gap = p.servoGap; gap >= 1 && !bay; gap -= 1) {
+          const cand = makeBay("servo", sTry, lenS, xH - gap - chord, xH - gap, depth, "bottom", "servo", {stand: upright, servo});
+          if (cand && !sparXAt(sTry).some(([sx, sr]) => sx + sr + 2 > wT.x + cand.ua * wT.c)) { bay = cand; usedGap = gap; stand = upright; usedS = sTry; }
+        }
+        if (bay) break;
+      }
+      if (sTry <= sIn + 0.1 && step > 0) break;
+    }
+    if (bay) {
+      bays.push(bay);
+      if (Math.abs(usedS - sWant) > 1 || usedGap < p.servoGap - 0.5)
+        L.note("Systems", `Servo pocket sits ${fmtN(usedS)} mm out and ${fmtN(usedGap)} mm ahead of the hinge, ${stand ? "standing" : "lying flat"} — that is what fits between the rear spar and the hinge here.`);
+    } else warns.push("The servo pocket cannot be fitted between the rear spar and the hinge anywhere along the aileron. Move the hinge aft, move the rear spar forward, or choose a slimmer servo.");
   }
   let hardpoints = null;
   if (p.vtol === "quad") {
@@ -480,17 +517,15 @@ function buildAircraft(A, opts = {}) {
     const sizes = [];                                                  // the chosen size first, then thinner
     for (let d = p.wireD; d >= 2.9; d -= 1) sizes.push(d);
     const runIn = (yEnd, uE, zEnd, id, label, mouth) => {               // root -> (uE, zEnd) at yEnd
-      const line = y => {
-        const wy = W.wingAt(y), sk = skin(wy, uE), zMid = (sk[0] + sk[1]) / 2;
-        return [sk[2], lerp(zEnd, zMid, Math.min(1, Math.max(0, (yEnd - y) / 60)))];
-      };
+      const w1 = W.wingAt(yEnd), xFix = w1.x + uE * w1.c;              // straight: one x, one height
+      const line = () => [xFix, zEnd];
       for (const d of sizes) {
         const rw = d / 2 + clr;
         if (mouth && !holeRing(mouth.x, mouth.z, rw, 24).every(q => inPoly(q[0], q[1], mouth.poly))) continue;
         let ok = true;
         for (let y = 0; y <= yEnd && ok; y += 3) {
           const yc = Math.min(y, yEnd - 0.01), q = line(yc);
-          if (!fitsAt(yc, q[0], q[1], rw) || sparXAt(yc).some(([sx, sr]) => Math.abs(sx - q[0]) < sr + rw + 1.5)) ok = false;
+          if (!fitsAt(yc, q[0], q[1], rw, true) || sparXAt(yc).some(([sx, sr]) => Math.abs(sx - q[0]) < sr + rw + 1.5)) ok = false;
         }
         if (!ok) continue;
         spars.push({id, tube: null, yStart: 0, yEnd, line, r: rw, wire: true, label, d});
@@ -516,9 +551,11 @@ function buildAircraft(A, opts = {}) {
       const yn = Math.abs(nc.y);
       if (yn < 30 || yn > half - 10) continue;
       const w = W.wingAt(yn), sx = sparXAt(yn);
-      const uE = Math.min(0.62, Math.max(0.1, sx.length ? (Math.max(...sx.map(([x, r]) => x + r)) + p.wireD / 2 + 3 - w.x) / w.c : 0.42));
-      const sk = skin(w, uE);
-      const d = runIn(yn - 4, uE, (sk[0] + sk[1]) / 2, 220 + i, "ESC leads", null);
+      let d = 0;
+      for (let uE = 0.12; uE <= 0.72 && !d; uE += 0.04) {               // wherever it clears the spars and the skin
+        const sk = skin(w, uE);
+        d = runIn(yn - 4, uE, (sk[0] + sk[1]) / 2, 220 + i, "ESC leads", null);
+      }
       if (d) L.note("Systems", `ESC leads: a ${fmtN(d)} mm channel runs from the root face to ${fmtN(yn)} mm, under the nacelle. Open its end into the nacelle with a ${fmtN(d)} mm drill through the top skin before gluing the nacelle on.${cut(d, "wing")}`);
       else warns.push("No room for an ESC wire channel out to the nacelle; run the motor leads along the outside of the wing.");
     }
@@ -723,10 +760,7 @@ function buildAircraft(A, opts = {}) {
       let loMax = -Infinity; for (let i = tbay.ia; i <= tbay.ib; i++) loMax = Math.max(loMax, Pe.lo[i][1]);
       const poly = [...Pe.lo.slice(tbay.ia, tbay.ib + 1), [Pe.lo[tbay.ib][0], tbay.roofZ], [Pe.lo[tbay.ia][0], tbay.roofZ]];
       const zE = (loMax + tbay.roofZ) / 2, xE2 = at(sEnd).x + uE * at(sEnd).c;
-      const lineW = s => {
-        const a2 = at(s), Q = foilPts(a2, [0, uE], p.minTE), zMid = (Q.up[1][1] + Q.lo[1][1]) / 2;
-        return [Q.lo[1][0], lerp(zE, zMid, Math.min(1, Math.max(0, (sEnd - s) / 40)))];
-      };
+      const lineW = () => [xE2, zE];                                   // straight, like the spars
       const what2 = name === "fin" ? "fin" : name === "vtail" ? "V-tail panel" : "stabiliser";
       for (let d = p.wireD; d >= 2.9 && !twire; d -= 1) {
         const rw = d / 2 + clr;
@@ -861,7 +895,16 @@ function buildAircraft(A, opts = {}) {
       addOpening("noseBay", 8, xn - 8, -Math.PI / 2, Math.max(8, p.fuseW * 0.28), "payload nose opening");
     }
     const hatches = [];
-    const hatchSpec = (id, label, x0, len, width) => { const o = addOpening(id, x0, x0 + len, Math.PI / 2, width / 2, label); if (o) hatches.push(o); };
+    const hatchSpec = (id, label, x0, len, width) => {
+      /* the lid reaches 9 mm ahead of its opening for the tongue, and a lid cannot span the
+         joint of a removable nose, so the opening is held clear of both */
+      const noseJoint = p.noseMode === "replaceable" ? Math.min(p.noseSplit, F.L * 0.5) + 8 : 0;
+      const lo = Math.max(14, noseJoint), hi = F.L - 10;
+      const x = Math.min(Math.max(x0, lo), Math.max(lo, hi - len));
+      if (x > x0 + 0.5) warns.push(`The ${label} would have hung over the ${x0 < 14 ? "nose" : "removable nose joint"}; it has been moved back to ${fmtN(x)} mm from the nose.`);
+      const o = addOpening(id, x, Math.min(x + len, hi), Math.PI / 2, width / 2, label);
+      if (o) hatches.push(o);
+    };
     if (p.hatchBatt) hatchSpec("hatchBatt", "battery hatch", p.hatchBattAuto ? L.xw + p.battX - p.hatchBattLen / 2 : p.hatchBattX, p.hatchBattLen, p.hatchBattW);
     if (p.hatchAv) hatchSpec("hatchAv", "avionics hatch", p.hatchAvX, p.hatchAvLen, p.hatchAvW);
     if (p.deck) {                                                     // never wider or longer than the fuselage carries
@@ -1218,6 +1261,18 @@ function buildAircraft(A, opts = {}) {
       const jig = plate(outline, [hole], 6).transformed([[1, 0, 0], [0, 0, 1], [0, 1, 0]], [0, y - 3, 0]);
       part(`jig_wing_${fmtN(y)}mm`, "jig", jig, [[1, 0, 0], [0, 0, -1], [0, 1, 0]], {settings: "Print 2 (one per side), PLA, 2 perimeters. Stand all jigs on a flat board: the common base sets incidence, washout and dihedral."});
     }
+  }
+
+  /* ================= parts you uploaded ================= */
+  if (typeof userPartList === "function") for (const cp of userPartList(p)) {
+    const t = userTris(cp);
+    if (!t || t.length < 9) continue;
+    const m = new Mesh();
+    for (let i = 0; i < t.length; i += 9) m.tri([t[i], t[i + 1], t[i + 2]], [t[i + 3], t[i + 4], t[i + 5]], [t[i + 6], t[i + 7], t[i + 8]]);
+    const safe = String(cp.name || "part").replace(/[^\w.-]+/g, "_").slice(0, 40) || "part";
+    const note = "Your own model, exported exactly as uploaded (scaled and placed). Orientation on the bed is yours to set in the slicer.";
+    part(safe + (cp.mirror ? "_R" : ""), "custom", m, ID3, {info: "uploaded", settings: note});
+    if (cp.mirror) part(safe + "_L", "custom", m.mapped((x, y, z) => [x, -y, z], true), ID3, {info: "uploaded, mirrored", settings: note});
   }
 
   /* ================= finalize: world + print triangles ================= */

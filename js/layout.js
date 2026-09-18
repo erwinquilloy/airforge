@@ -210,7 +210,9 @@ function makeLayout(p) {
       const boomTop = (booms.find(b => !b.mirrored)?.a[2] ?? prof[2]) + Math.max(prof[1] * 0.4, (booms[0]?.tube?.[0] || p.boomD) / 2);
       const z = Math.max(prof[2] + prof[1] + 25, boomTop + propR + 12);
       motors.push({pos: [x, 0, z], dir: [1, 0, 0], propD: p.propD, role: "cruise", mount: "pylon", pylonBase: prof[2] + prof[1] - 4});
-      note("Propulsion", `Pusher on a ${fmtN(z - prof[2] - prof[1])} mm pylon so the ${p.propD}" disc clears the tail boom by 12 mm.`);
+      const mast = z - prof[2] - prof[1];
+      note("Propulsion", `Pusher on a ${fmtN(mast)} mm pylon so the ${p.propD}" disc clears the tail by 12 mm.`);
+      motors[motors.length - 1].mast = mast;
     } else {
       const x = Math.max(fuse.L || 0, xTEat(0)) + 20;
       motors.push({pos: [x, 0, hasFuse ? 0 : zWing], dir: [1, 0, 0], propD: p.propD, role: "cruise", mount: "firewall"});

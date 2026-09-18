@@ -21,7 +21,7 @@
       <button role="tab" data-tab="bal" aria-selected="false">Balance</button>
       <button role="tab" data-tab="opt" aria-selected="false">Mission</button>
     </nav>
-    <button class="btn primary" id="exportBtn">Export parts</button>
+    <div class="bar-btns"><button class="btn" id="saveBtn" title="Save every setting, airfoil and uploaded model to a file">Save design</button><label class="btn" for="loadFile" title="Load a design file">Load design</label><input id="loadFile" type="file" accept=".json" hidden><button class="btn primary" id="exportBtn">Export parts</button></div>
   </header>
   <div class="work">
     <aside class="side left" id="left" aria-label="Design inputs"></aside>
@@ -32,7 +32,7 @@
         <button data-view="iso">3D</button><button data-view="top">Top</button><button data-view="below">Below</button><button data-view="front">Front</button><button data-view="side">Side</button>
       </div>
       <div class="legend3d">
-        <span><i style="background:var(--s3)"></i>Neutral point</span><span><i style="background:var(--s1)"></i>Target CG</span><span><i style="background:var(--good)"></i>Actual CG</span><span><i style="background:var(--carbon)"></i>Carbon</span><span><i style="background:var(--part-ctrl)"></i>Control surfaces</span><span><i style="background:var(--part-open)"></i>Hatches &amp; covers</span><span><i style="background:var(--part-mount)"></i>Mounts</span><span><i style="background:var(--motor)"></i>Wire channels</span>
+        <span><i style="background:var(--s3)"></i>Neutral point</span><span><i style="background:var(--s1)"></i>Target CG</span><span><i style="background:var(--good)"></i>Actual CG</span><span><i style="background:var(--carbon)"></i>Carbon</span><span><i style="background:var(--part-ctrl)"></i>Control surfaces</span><span><i style="background:var(--part-open)"></i>Hatches &amp; covers</span><span><i style="background:var(--part-mount)"></i>Mounts</span><span><i style="background:var(--part-user)"></i>Your parts</span>
       </div>
       <div class="cmap" id="cmap" hidden></div>
       <div class="floattip" id="partTip" hidden></div>
@@ -50,6 +50,7 @@
 <script src="js/aero.js"></script>
 <script src="js/power.js"></script>
 <script src="js/analysis.js"></script>
+<script src="js/userparts.js"></script>
 <script src="js/geometry-core.js"></script>
 <script src="js/geometry.js"></script>
 <script src="js/flowfield.js"></script>

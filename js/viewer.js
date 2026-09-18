@@ -43,7 +43,7 @@ const Viewer = (() => {
   const dispose = obj => obj && obj.traverse(o => { o.geometry && o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
 
   /* ---------------- coloring ---------------- */
-  const GROUP_COLOR = {wing: "--part-a", tail: "--part-a", fuse: "--part-a", ctrl: "--part-ctrl", mount: "--part-mount", vtol: "--part-vtol", cool: "--part-cool", jig: "--part-b"};
+  const GROUP_COLOR = {wing: "--part-a", tail: "--part-a", fuse: "--part-a", ctrl: "--part-ctrl", mount: "--part-mount", vtol: "--part-vtol", cool: "--part-cool", jig: "--part-b", custom: "--part-user"};
   /* parts that come off the airframe again — hatches, covers, the swappable nose and pods —
      read as one family, apart from the moving control surfaces and from the glued structure */
   const OPEN_PART = /^(?:[a-z]+_)?(fpv_nose|fpv_canopy|underslung_pod|battery_hatch|avionics_hatch|servo_cover)(_[LR]|_\d+)*$/;
@@ -150,6 +150,19 @@ const Viewer = (() => {
       model.add(mesh);
     }
     const L = a.L, p = a.p, W = L.wing;
+    if (typeof USER !== "undefined" && USER.ref && p.refShow !== false) {              // reference model, traced against
+      const s = p.refScale > 0 ? p.refScale : 1, src = USER.ref.tris, t = new Float32Array(src.length);
+      for (let i = 0; i < src.length; i += 3) {
+        t[i] = src[i] * s + (p.refX || 0); t[i + 1] = src[i + 1] * s + (p.refY || 0); t[i + 2] = src[i + 2] * s + (p.refZ || 0);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(t, 3));
+      g.computeVertexNormals();
+      const gm = new THREE.Mesh(g, new THREE.MeshStandardMaterial({color: col("--muted"), roughness: 0.9, metalness: 0,
+        transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide}));
+      gm.userData = {ghost: true};
+      model.add(gm);
+    }
     const lineMat = (token, opacity = 0.9) => new THREE.MeshBasicMaterial({color: col(token), depthTest: false, transparent: true, opacity});
     const rod = (P0, P1, r, mat) => {
       const v0 = new THREE.Vector3(...P0), v1 = new THREE.Vector3(...P1), len = v0.distanceTo(v1);
@@ -159,13 +172,10 @@ const Viewer = (() => {
       m.renderOrder = 2; overlay.add(m);
     };
     const carbon = lineMat("--carbon", 0.85);
-    const wireMat = lineMat("--motor", 0.8);
     for (const sp of b.spars) {
       const pt = (y, side) => { const [x, z] = sp.line(y); return [x, side * y, W.dihZ(y) + z]; };
-      if (sp.wire) {                                                                     // a curved channel, drawn in steps
-        for (const side of [1, -1]) for (let k = 0; k < 8; k++)
-          rod(pt(lerp(sp.yStart, sp.yEnd, k / 8), side), pt(lerp(sp.yStart, sp.yEnd, (k + 1) / 8), side), sp.r * 0.8, wireMat);
-      } else if (sp.continuous) {
+      if (sp.wire) continue;                                                             // a channel is a void, not a tube
+      if (sp.continuous) {
         rod(pt(sp.yEnd, -1), pt(sp.yEnd, 1), sp.tube[0] / 2, carbon);                            // one rod across both wings
         if (sp.telescope) rod(pt(sp.sockLen / 2, -1), pt(sp.sockLen / 2, 1), sp.socket[0] / 2, carbon);   // the fuselage socket
       }

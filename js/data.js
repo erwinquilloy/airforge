@@ -58,6 +58,7 @@ const MOTORS = [
   ["m2806", "2806.5 · 1300 Kv", 1300, 0.055, 0.90, 42, 45, 6, 32, "sq16"],
   ["m2812", "2812 · 1115 Kv", 1115, 0.055, 1.00, 62, 45, 6, 34, "x16_19"],
   ["m2814", "2814 · 700 Kv",   700, 0.070, 0.90, 110, 35, 5, 35, "x19_25"],
+  ["m2816", "2816 · 1000 Kv", 1000, 0.050, 0.90,  85, 40, 4, 35, "x19_25"],
   ["m2820", "2820 · 920 Kv",   920, 0.035, 1.20, 125, 45, 4, 35, "x19_25"],
   ["m3508", "3508 · 580 Kv",   580, 0.080, 0.60, 88, 30, 6, 41, "sq25"],
   ["m3515", "3515 · 400 Kv",   400, 0.090, 0.40, 150, 30, 6, 42, "sq25"],
@@ -230,6 +231,12 @@ const SCHEMA = [
   F("air", "ctrl", "tailBlisterMax", "Largest servo blister on the tail", "mm", 0, 14, 0.5, 7, p => p.ctrlSurf && p.tailCtrl && p.tailServo && p.tailType !== "none",
     "How far the cover may stand proud of the surface to house a servo the panel cannot swallow. 0 = the servo must fit inside the section."),
   SEL("air", "ctrl", "servoOrient", "Wing servo orientation", [["auto", "Auto (stand if the wing is thick enough)"], ["stand", "Standing"], ["flat", "Lying flat"]], "auto", p => p.ctrlSurf),
+  // ---- your own geometry
+  T("air", "user", "refShow", "Show the reference model", true, () => !!(typeof USER !== "undefined" && USER.ref)),
+  F("air", "user", "refScale", "Reference scale", "×", 0.05, 10, 0.01, 1, () => !!(typeof USER !== "undefined" && USER.ref)),
+  F("air", "user", "refX", "Reference offset — nose to tail", "mm", -3000, 3000, 1, 0, () => !!(typeof USER !== "undefined" && USER.ref)),
+  F("air", "user", "refY", "Reference offset — sideways", "mm", -3000, 3000, 1, 0, () => !!(typeof USER !== "undefined" && USER.ref)),
+  F("air", "user", "refZ", "Reference offset — up", "mm", -3000, 3000, 1, 0, () => !!(typeof USER !== "undefined" && USER.ref)),
   // ---- cooling & battery
   T("air", "cool", "intake", "NACA intake duct", false, hasFuse, "Submerged intake: an opening in the shell plus a glue-in duct insert with a 7° ramp."),
   F("air", "cool", "intakeX", "Intake position (from nose)", "mm", 10, 1500, 1, 140, p => hasFuse(p) && p.intake, "Or drag the intake marker on the 3D fuselage."),
@@ -310,14 +317,17 @@ const DEFAULT_COMPONENTS = () => [
 function defaultParams() {
   const p = {};
   SCHEMA.forEach(f => p[f.id] = f.def);
-  Object.assign(p, {foilRoot: "naca3410", foilTip: "naca2412", foilTail: "naca0009", components: DEFAULT_COMPONENTS(), template: "cruiser"});
+  Object.assign(p, {foilRoot: "naca3410", foilTip: "naca2412", foilTail: "naca0009", components: DEFAULT_COMPONENTS(), template: "cruiser", customParts: [], designName: ""});
   return p;
 }
 
 /* Configuration templates — generic archetypes of popular printed airframes */
 const TEMPLATES = [
-  {id: "cruiser", name: "FPV cruiser", desc: "Conventional pusher with replaceable FPV nose; long endurance.",
-    p: {wingType: "tapered", tailType: "conv", fuseType: "podboom", motorLayout: "pusher", span: 1600, rootChord: 240, taper: 0.6, sweep: 2, dihedral: 3, washout: 1.5, foilRoot: "naca3410", foilTip: "naca2412", noseMode: "replaceable", noseLen: 300, tailArm: 0.52, vtol: "none", wingBlend: true, blendSpan: 60, blendChord: 1.3, blendThick: 1.6, cells: 4, capacity: 4000, motorId: "m2216", propD: 9, propP: 6, battX: -110}},
+  {id: "cruiser", name: "FPV cruiser", desc: "Titan Trooper class: 1,665 mm long-range cruiser, twin wing tractors, removable wings and tail.",
+    p: {wingType: "tapered", tailType: "conv", fuseType: "podboom", motorLayout: "twin", motorSpan: 0.3, span: 1665, rootChord: 250, taper: 0.416, panels: "2", kinkPos: 0.5, kinkChord: 0.94, sweep: 0, dihedral: 0, washout: 2,
+      foilRoot: "naca5412", foilTip: "naca3412", foilTail: "naca0011", tailBlisterMax: 9, noseMode: "replaceable", noseLen: 300, tailArm: 0.52, vtol: "none",
+      wingBlend: true, blendSpan: 60, blendChord: 1.3, blendThick: 1.6, hatchBatt: true,
+      cells: 4, capacity: 8000, motorId: "m2816", propD: 10, propP: 5, mountPattern: "x19_25", fuseW: 104, fuseH: 104, sparPos: 0.22, spar2Pos: 0.4, battX: -110}},
   {id: "twinboom", name: "Twin-boom pusher", desc: "Pod on the wing, carbon booms and H-tail; clear pusher prop arc.",
     p: {wingType: "tapered", tailType: "twinboom", fuseType: "pod", motorLayout: "pusher", span: 1700, rootChord: 250, taper: 0.7, sweep: 0, dihedral: 2, washout: 1, podLen: 460, noseLen: 220, boomSpacing: 0.3, tailArm: 0.46, foilRoot: "naca4412", foilTip: "naca2412", noseMode: "replaceable", vtol: "none", cells: 6, capacity: 3300, motorId: "m3508", propD: 9, propP: 6, battX: -90}},
   {id: "twinmotor", name: "Twin-motor conventional", desc: "Wing-mounted tractors leave the nose free for sensors.",
@@ -375,7 +385,7 @@ const MISSION_SCHEMA = [
 function defaultMission() { const m = {}; MISSION_SCHEMA.forEach(f => m[f.id] = f.def); return m; }
 
 const GROUPS = {
-  air: [["cfg", "Configuration"], ["foils", "Airfoils"], ["wing", "Wing"], ["tail", "Tail"], ["fuse", "Fuselage & FPV nose"], ["shape", "Fuselage shape"], ["mounts", "Mounts & bays"], ["hatch", "Hatches"], ["ctrl", "Control surfaces & servos"], ["cool", "Cooling & battery"], ["vtol", "VTOL kit (bolt-on)"], ["spars", "Spars"], ["cuts", "Cuts & joiners"], ["fasten", "Screws, inserts & jigs"], ["print", "Printer & material"]],
+  air: [["cfg", "Configuration"], ["foils", "Airfoils"], ["wing", "Wing"], ["tail", "Tail"], ["fuse", "Fuselage & FPV nose"], ["shape", "Fuselage shape"], ["mounts", "Mounts & bays"], ["hatch", "Hatches"], ["ctrl", "Control surfaces & servos"], ["cool", "Cooling & battery"], ["vtol", "VTOL kit (bolt-on)"], ["spars", "Spars"], ["cuts", "Cuts & joiners"], ["fasten", "Screws, inserts & jigs"], ["user", "My parts & reference model"], ["print", "Printer & material"]],
   pow: [["motor", "Cruise motor & propeller"], ["batt", "Battery"], ["lift", "VTOL lift system"], ["lab", "Power lab"]],
   aero: [["solver", "Aero solver"], ["cond", "Flight conditions"], ["cal", "Flight-test calibration"]],
   bal: [["bal", "Balance"], ["comps", "Components"]],

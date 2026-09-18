@@ -113,6 +113,10 @@ function analyze(p, opts = {}) {
   const battMass = pk.Wh / pk.ch.whkg * 1000 * 1.03;
   add("Battery", battMass, L.xw + p.battX, "battery");
   add("Payload", p.payload, L.xw + p.payloadX, "payload");
+  if (typeof userPartList === "function") for (const cp of userPartList(p)) {         // parts you uploaded
+    const c = userCentroid(cp), m = (+cp.mass || 0) * (cp.mirror ? 2 : 1);
+    if (m > 0 && c) add(cp.name || "Uploaded part", m, c[0], "payload");
+  }
   const structSum = items.filter(i => i.group === "structure").reduce((s, i) => s + i.mass, 0);
   add("Hardware & glue", 0.03 * structSum + 10, W.xacW, "structure");
 
@@ -283,6 +287,8 @@ function analyze(p, opts = {}) {
     else if (t.manual && !t.strong) chk("bad", `${nm}: the ${tubeLabel(t.tube)} reaches ${fmtN(t.stress)} MPa at ${p.loadFactor} g, above the ${fmtN(CARBON_ALLOW)} MPa allowable.`);
     else if (!t.ok) chk("bad", `${nm}: no carbon tube both carries the ${p.loadFactor} g root moment and fits the ${fmtN(t.depth, 1)} mm depth. Use a thicker root section, a second spar or a lower load factor.`);
   });
+  const mast = (L.motors.find(m => m.mount === "pylon") || {}).mast || 0;
+  if (mast > 55) chk("warn", `A ${p.propD}" pusher behind this wing sits on a ${fmtN(mast)} mm pylon to clear the tail. A mast that tall is draggy and easy to break: Titan's cruisers of this size (Trooper, Moose) hang two motors on the wing instead, and twin booms with the prop between them or a nose tractor also avoid it.`);
   const bedDiag = Math.hypot(p.bedX, p.bedY) - 12;
   const maxChord = Math.max(...wingSt.map(w => w.c));
   if (maxChord > bedDiag) chk("bad", `The largest wing chord (${fmtN(maxChord)} mm) is longer than the bed diagonal (${fmtN(bedDiag)} mm).`);

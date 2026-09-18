@@ -8,9 +8,12 @@ const App = {
 
   init() {
     loadState();
+    this.loadUser();
     document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => this.setTab(b.dataset.tab)));
     document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => Viewer.setView(b.dataset.view)));
     $("exportBtn").addEventListener("click", () => this.exportZip());
+    $("saveBtn").addEventListener("click", () => this.saveDesign());
+    $("loadFile").addEventListener("change", e => { const f = e.target.files[0]; if (f) this.loadDesign(f); e.target.value = ""; });
     Viewer.init($("view"), {onDrag: (k, v) => this.drag(k, v), onHover: (pt, e, mk) => this.hover(pt, e, mk)});
     const redraw = () => { if (S.A) { Viewer.setModel(S.A, S.B); Panels.render(); } };
     try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redraw); } catch (e) { /* old browser */ }
@@ -197,6 +200,51 @@ const App = {
     S.p = Object.assign({}, b.p); S.p.battX = Math.round(analyze(S.p).battXNeeded);
     this.setTab("air"); this.full();
     toast("Optimized design loaded. Everything stays editable.");
+  },
+
+  /* ---------------- the design file ---------------- */
+  saveUser() {
+    try {
+      const out = {};
+      let bytes = 0;
+      for (const cp of S.p.customParts || []) {
+        const t = USER.mesh[cp.id];
+        if (!t) continue;
+        bytes += t.byteLength;
+        if (bytes > 3e6) { toast("Uploaded parts are too large to keep between reloads; save the design file to keep them."); break; }
+        out[cp.id] = b64FromTris(t);
+      }
+      const ref = USER.ref && USER.ref.tris.byteLength < 3e6 ? {name: USER.ref.name, tris: b64FromTris(USER.ref.tris)} : null;
+      store.set("af2-user", {meshes: out, ref});
+    } catch (e) { /* storage full: the design file is the durable copy */ }
+  },
+  loadUser() {
+    const u = store.get("af2-user");
+    if (!u) return;
+    for (const [id, b] of Object.entries(u.meshes || {})) { try { USER.mesh[id] = trisFromB64(b); } catch (e) { /* skip */ } }
+    if (u.ref) { try { USER.ref = {name: u.ref.name, tris: trisFromB64(u.ref.tris)}; } catch (e) { /* skip */ } }
+  },
+  saveDesign() {
+    const d = designFile(S.p, S.importedDat || []);
+    const name = (S.p.designName || S.p.template || "design").replace(/[^\w.-]+/g, "_");
+    const blob = new Blob([JSON.stringify(d)], {type: "application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name + ".afd.json";
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
+    toast(`Saved ${name}.afd.json — every setting, your imported airfoils and any uploaded geometry.`);
+  },
+  loadDesign(file) {
+    file.text().then(txt => {
+      let r;
+      try { r = readDesignFile(txt, SCHEMA, defaultParams()); } catch (e) { toast(e.message); return; }
+      S.p = r.params;
+      for (const d of r.foils) { try { const f = parseDat(d.text, d.name); f.id = d.id; addFoil(f); if (!S.importedDat.some(q => q.id === d.id)) S.importedDat.push(d); } catch (e) { /* skip */ } }
+      store.set("af2-foils", S.importedDat);
+      this.saveUser();
+      Left.render(); this.full();
+      toast((r.notes.length ? r.notes.join(" ") + " " : "") + "Design loaded.");
+    });
   },
 
   /* ---------------- export ---------------- */
