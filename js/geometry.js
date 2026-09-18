@@ -85,7 +85,14 @@ function buildLiftSeg(c) {
       if (inA === inB) continue;
       const b = (inA ? A : B).st.bays.find(q => q.id === id), z = b.roof(ys[j]);
       const arr = b.side === "bottom" ? lo : up;
-      faces.push({j, pts: [...arr.slice(b.ia, b.ib + 1), [arr[b.ib][0], z], [arr[b.ia][0], z]], holes: [], sign: inB ? 1 : -1});
+      const pts = [...arr.slice(b.ia, b.ib + 1), [arr[b.ib][0], z], [arr[b.ia][0], z]];
+      const holes = [], side = inA ? A : B, other = inA ? B : A;
+      for (const h of side.hk) {                                         // a bore dying here opens into the pocket
+        if (claimed.has(h.key) || other.hk.some(q => q.key === h.key)) continue;
+        const ring = h.fn(j);
+        if (ring.every(q => inPoly(q[0], q[1], pts))) { holes.push(ring); claimed.add(h.key); }
+      }
+      faces.push({j, pts, holes, sign: inB ? 1 : -1});
     }
     const keysA = new Set(A.hk.map(h => h.key)), keysB = new Set(B.hk.map(h => h.key));
     for (const h of A.hk) if (!keysB.has(h.key) && !claimed.has(h.key)) discs.push({j, ring: h.fn(j), sign: -1});
@@ -339,6 +346,58 @@ function buildAircraft(A, opts = {}) {
   const iH = wcs ? U.indexOf(wcs.uH) : -1;
   if (wcs) wcs.iH = iH;
 
+  /* Wire channels. A bore from the root face to the servo pocket carries the servo lead,
+     and on a twin the ESC leads get their own bore out to the nacelle station. The bore
+     dies at the pocket wall, where the loft turns it into an opening into the pocket. */
+  const wirePorts = [];
+  if (p.wireCh) {
+    const sizes = [];                                                  // the chosen size first, then thinner
+    for (let d = p.wireD; d >= 2.9; d -= 1) sizes.push(d);
+    const runIn = (yEnd, uE, zEnd, id, label, mouth) => {               // root -> (uE, zEnd) at yEnd
+      const line = y => {
+        const wy = W.wingAt(y), sk = skin(wy, uE), zMid = (sk[0] + sk[1]) / 2;
+        return [sk[2], lerp(zEnd, zMid, Math.min(1, Math.max(0, (yEnd - y) / 60)))];
+      };
+      for (const d of sizes) {
+        const rw = d / 2 + clr;
+        if (mouth && !holeRing(mouth.x, mouth.z, rw, 24).every(q => inPoly(q[0], q[1], mouth.poly))) continue;
+        let ok = true;
+        for (let y = 0; y <= yEnd && ok; y += 3) {
+          const yc = Math.min(y, yEnd - 0.01), q = line(yc);
+          if (!fitsAt(yc, q[0], q[1], rw) || sparXAt(yc).some(([sx, sr]) => Math.abs(sx - q[0]) < sr + rw + 1.5)) ok = false;
+        }
+        if (!ok) continue;
+        spars.push({id, tube: null, yStart: 0, yEnd, line, r: rw, wire: true, label, d});
+        const q0 = line(0);
+        wirePorts.push({x: q0[0], z: W.dihZ(0) + q0[1], lateral: true, label, d});
+        return d;
+      }
+      return 0;
+    };
+    const cut = (d, what) => d && d < p.wireD - 0.01
+      ? ` It was narrowed from ${fmtN(p.wireD)} mm because that is all the ${what} carries.` : "";
+    const sv = bays.find(b => b.kind === "servo");
+    if (sv) {
+      const w = W.wingAt(sv.a), P = foilPts(w, U, p.minTE);
+      let loMax = -Infinity; for (let i = sv.ia; i <= sv.ib; i++) loMax = Math.max(loMax, P.lo[i][1]);
+      const poly = [...P.lo.slice(sv.ia, sv.ib + 1), [P.lo[sv.ib][0], sv.roofZ], [P.lo[sv.ia][0], sv.roofZ]];
+      const uE = (sv.ua + sv.ub) / 2, zE = (loMax + sv.roofZ) / 2;
+      const d = runIn(sv.a, uE, zE, 210, "servo lead", {x: w.x + uE * w.c, z: zE, poly});
+      if (d) L.note("Systems", `Servo lead: a ${fmtN(d)} mm channel runs ${fmtN(sv.a)} mm from the root face into the servo pocket.${cut(d, "wing")}`);
+      else warns.push("No room for a servo wire channel inside the wing, even at 3 mm: the run from the root to the pocket leaves the skin or meets a spar. Move the spar or the pocket, or run the lead outside.");
+    }
+    if (p.wireEsc && p.motorLayout === "twin") for (const [i, nc] of L.nacelles.entries()) {
+      const yn = Math.abs(nc.y);
+      if (yn < 30 || yn > half - 10) continue;
+      const w = W.wingAt(yn), sx = sparXAt(yn);
+      const uE = Math.min(0.62, Math.max(0.1, sx.length ? (Math.max(...sx.map(([x, r]) => x + r)) + p.wireD / 2 + 3 - w.x) / w.c : 0.42));
+      const sk = skin(w, uE);
+      const d = runIn(yn - 4, uE, (sk[0] + sk[1]) / 2, 220 + i, "ESC leads", null);
+      if (d) L.note("Systems", `ESC leads: a ${fmtN(d)} mm channel runs from the root face to ${fmtN(yn)} mm, under the nacelle. Open its end into the nacelle with a ${fmtN(d)} mm drill through the top skin before gluing the nacelle on.${cut(d, "wing")}`);
+      else warns.push("No room for an ESC wire channel out to the nacelle; run the motor leads along the outside of the wing.");
+    }
+  }
+
   /* joiner pins at a cut, clear of spars, pockets and the hinge cut */
   const pinsAt = yc => {
     if (!pin) return [];
@@ -429,7 +488,7 @@ function buildAircraft(A, opts = {}) {
     for (const side of [1, -1]) {
       const map = toWorld(side), sfx = side > 0 ? "R" : "L", segSfx = nSeg > 1 ? "_" + (si + 1) : "";
       const nPins = pinsIn.length + pinsOut.length;
-      const info = [...spars.filter(sp => sp.yStart < s1 - 0.5 && sp.yEnd > s0 + 0.5).map(sp => `${tubeLabel(sp.tube)} ${sp.joiner ? "joiner" : "spar"} bore`), nPins ? `${nPins} × ${pin[0]} mm pin pockets` : "", segBays.length ? segBays.map(b => b.kind === "servo" ? "servo pocket" : "hardpoint pocket").join(", ") : ""].filter(Boolean).join(", ");
+      const info = [...spars.filter(sp => sp.yStart < s1 - 0.5 && sp.yEnd > s0 + 0.5).map(sp => sp.wire ? `${fmtN(sp.d)} mm ${sp.label} channel` : `${tubeLabel(sp.tube)} ${sp.joiner ? "joiner" : "spar"} bore`), nPins ? `${nPins} × ${pin[0]} mm pin pockets` : "", segBays.length ? segBays.map(b => b.kind === "servo" ? "servo pocket" : "hardpoint pocket").join(", ") : ""].filter(Boolean).join(", ");
       part(`wing_${sfx}${segSfx}`, "wing", local.mapped(map, side < 0), standRoot(side), {seg: si, cp: true, side, info,
         settings: "Stand on the root face. 1–2 walls, 0% infill, 3 bottom layers, no supports. Add 2 perimeters around bores with a slicer modifier."});
       if (nPins) bom.pins.push(...Array(nPins).fill(p.pinDepth * 2));
@@ -530,6 +589,35 @@ function buildAircraft(A, opts = {}) {
         L.note("Systems", `${what} servo: pocket at ${fmtN(ua * 100)}–${fmtN(ub * 100)}% chord, ${fmtN(tbay.roofZ - tbay.zBot, 1)} mm deep${tbay.meta.blister > 0.2 ? `, with a ${fmtN(tbay.meta.blister, 1)} mm blister on the cover` : ""}.`);
       }
     }
+    /* the tail servo lead runs inside the panel, from the root face into the pocket */
+    let twire = null;
+    if (tbay && p.wireCh) {
+      const sEnd = tbay.a, uE = (tbay.ua + tbay.ub) / 2;
+      const Pe = foilPts(at(sEnd), Up, p.minTE);
+      let loMax = -Infinity; for (let i = tbay.ia; i <= tbay.ib; i++) loMax = Math.max(loMax, Pe.lo[i][1]);
+      const poly = [...Pe.lo.slice(tbay.ia, tbay.ib + 1), [Pe.lo[tbay.ib][0], tbay.roofZ], [Pe.lo[tbay.ia][0], tbay.roofZ]];
+      const zE = (loMax + tbay.roofZ) / 2, xE2 = at(sEnd).x + uE * at(sEnd).c;
+      const lineW = s => {
+        const a2 = at(s), Q = foilPts(a2, [0, uE], p.minTE), zMid = (Q.up[1][1] + Q.lo[1][1]) / 2;
+        return [Q.lo[1][0], lerp(zE, zMid, Math.min(1, Math.max(0, (sEnd - s) / 40)))];
+      };
+      const what2 = name === "fin" ? "fin" : name === "vtail" ? "V-tail panel" : "stabiliser";
+      for (let d = p.wireD; d >= 2.9 && !twire; d -= 1) {
+        const rw = d / 2 + clr;
+        let ok = holeRing(xE2, zE, rw, 24).every(q => inPoly(q[0], q[1], poly));
+        for (let s = 0; s <= sEnd && ok; s += 3) {
+          const sc = Math.min(s, sEnd - 0.01), q = lineW(sc), a2 = at(sc);
+          const Q = foilPts(a2, [0, Math.min(0.92, Math.max(0.03, (q[0] - a2.x) / a2.c))], p.minTE);
+          if (Q.up[1][1] - rw - 1 < q[1] || Q.lo[1][1] + rw + 1 > q[1]) ok = false;
+          if (rodLine && sc < rodLine.sEnd && Math.abs(rodLine.line(sc)[0] - q[0]) < rodLine.r + rw + 1.5) ok = false;
+        }
+        if (ok) {
+          twire = {id: 8, line: lineW, r: rw, yStart: 0, yEnd: sEnd, wire: true, label: "servo lead", d};
+          L.note("Systems", `${what2} servo lead: a ${fmtN(d)} mm channel runs ${fmtN(sEnd)} mm from the root face into the pocket.${d < p.wireD - 0.01 ? ` It was narrowed from ${fmtN(p.wireD)} mm because that is all the panel carries.` : ""}`);
+        }
+      }
+      if (!twire) warns.push(`No room for a wire channel inside the ${what2}, even at 3 mm; bring the servo lead out through the root and tape it inside the fuselage.`);
+    }
     const dPin = Math.min(p.pinDepth, 14);
     for (let si = 0; si < pb.length - 1; si++) {
       const s0 = pb[si], s1 = pb[si + 1];
@@ -545,7 +633,8 @@ function buildAircraft(A, opts = {}) {
       const pIn = pinAt(s0), pOut = pinAt(s1);
       // the bore runs from the root to wherever the rod still fits, ending as a pocket
       const rodHere = rodLine && s0 < rodLine.sEnd - 1 ? [{id: 9, line: rodLine.line, r: rodLine.r, yStart: 0, yEnd: rodLine.sEnd}] : [];
-      const spRod = rodHere;
+      const wireHere = twire && twire.yStart < s1 - 0.5 && twire.yEnd > s0 + 0.5 ? [twire] : [];
+      const spRod = [...rodHere, ...wireHere];
       const local = buildLiftSeg({s0, s1, step: quick ? 30 : 12, breaks: [], sectionAt: at, U: Up, minTE: p.minTE * 0.8, cs: tcs ? {...tcs, pin: tcs.pinR ? {line: tcs.line, r: tcs.pinR} : null} : null,
         bays: bayHere ? [tbay] : [], spars: spRod, pinsIn: pIn, pinsOut: pOut, pinR, pinDepth: dPin, meta: false});
       let csMesh = null;
@@ -594,9 +683,14 @@ function buildAircraft(A, opts = {}) {
         const Rp = [[1, 0, 0], vcross(sd, [1, 0, 0]), sd];
         const sfx = `${mirrored ? (side > 0 ? "_R" : "_L") : ""}${pb.length > 2 ? "_" + (si + 1) : ""}`;
         const nPins = pIn.length + pOut.length;
-        const info = [rodHere.length ? `${rod[0]} mm rod bore` : "", nPins ? `${nPins} × ${pin[0]} mm pin pockets` : "", bayHere ? "servo pocket" : ""].filter(Boolean).join(", ");
+        const info = [rodHere.length ? `${rod[0]} mm rod bore` : "", wireHere.length ? `${fmtN(twire.d)} mm wire channel` : "", nPins ? `${nPins} × ${pin[0]} mm pin pockets` : "", bayHere ? "servo pocket" : ""].filter(Boolean).join(", ");
         part(name + sfx, group, local.transformed(Rw, tw), Rp, {seg: si, settings, info});
         if (csMesh) part((opt.csName || "elevator") + sfx, "ctrl", csMesh.transformed(Rw, tw), Rp, {seg: si, settings: "Stand on its end, 2 walls. Hinge pin through the pockets."});
+        if (si === 0 && wireHere.length && L.hasFuse) {
+          const q0 = twire.line(0.2), pw = [q0[0], 0, q0[1]];
+          const wp = [root.x + pw[0], side * root.y + sd[1] * 0 + th[1] * pw[2], root.z + th[2] * pw[2]];
+          wirePorts.push({x: wp[0], z: wp[2], y: wp[1], lateral: Math.abs(sd[1]) > 0.5, label: `${name} servo lead`, d: twire.d});
+        }
         for (const q of hw) {
           part(`${name}_${q.nm}${sfx}`, "ctrl", q.mesh.transformed(Rw, tw), [[1, 0, 0], sd, vcross([1, 0, 0], sd)], {seg: si, settings: q.settings});
           if (q.nm === "servo_cover") { bom.inserts += 2; bom.m3screws += 2; bom.servos++; }
@@ -628,12 +722,12 @@ function buildAircraft(A, opts = {}) {
       m = Math.max(1, m);
       return Array.from({length: 2 * m + 1}, (_, i) => (kc - m + i + nRing) % nRing);
     };
-    const addOpening = (id, x0, x1, ang, w, kind) => {
+    const addOpening = (id, x0, x1, ang, w, kind, optional) => {
       x0 = Math.max(4, x0); x1 = Math.min(F.L - 4, x1);
       if (x1 - x0 < 6) return null;
       const idx = idxRun((x0 + x1) / 2, ang, w);
       const clash = openings.find(o => o.x1 > x0 - 2 && o.x0 < x1 + 2 && o.idx.some(k => idx.some(q => Math.abs(((q - k + nRing + nRing / 2) % nRing) - nRing / 2) <= 1)));
-      if (clash) { warns.push(`The ${kind} overlaps the ${clash.kind}; drag it to a clear spot.`); return null; }
+      if (clash) { if (!optional) warns.push(`The ${kind} overlaps the ${clash.kind}; drag it to a clear spot.`); return null; }
       const o = {id, x0, x1, ang, w, kind, idx}; openings.push(o); return o;
     };
     if (p.noseMode === "replaceable" && p.noseStyle === "payload" && p.motorLayout !== "tractor") {
@@ -664,6 +758,18 @@ function buildAircraft(A, opts = {}) {
       const w = Math.min(9, p.fuseW / 5), len = Math.max(12, area / (2 * w));
       for (const ang of mirrorAngs(p.exhaustAng, p.exhaustMirror)) addOpening("ex" + ang.toFixed(2), p.exhaustX, p.exhaustX + len, ang, w, "exhaust");
     }
+
+    /* wire pass-throughs: a slot in the shell where a channel meets a root face */
+    if (p.wireCh) wirePorts.forEach((wp, i) => {
+      const xc = Math.max(10, Math.min(wp.x, F.L - 10)), [hw, hh, zc] = F.profile(xc), rp = (wp.d || p.wireD) / 2 + 1.6;
+      if (Math.abs(wp.z - zc) > hh + 8) return;                         // that root face is nowhere near the shell
+      const sides = wp.lateral ? (wp.y === undefined ? [1, -1] : [Math.sign(wp.y) || 1]) : [0];
+      for (const sg of sides) {
+        const ang = wp.lateral ? Math.atan2((wp.z - zc) / Math.max(1, hh) * 0.5, sg) : Math.PI / 2;
+        const o = addOpening(`wire${i}_${sg}`, xc - rp, xc + rp, ang, rp, `${wp.label} pass-through`, true);
+        if (!o) L.note("Systems", `The ${wp.label} port at ${fmtN(xc)} mm from the nose runs into another opening; bring that lead through the neighbouring opening instead.`);
+      }
+    });
 
     const sleeve = xc => {
       const [hw, hh, zc] = F.profile(xc), m = new Mesh();

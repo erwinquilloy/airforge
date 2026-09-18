@@ -14,6 +14,14 @@ const vcross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], 
 const vdot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const vnorm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 const vscale = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+const inPoly = (x, y, poly) => {
+  let inside = false;
+  for (let i = 0, n = poly.length, j = n - 1; i < n; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a[1] > y) !== (b[1] > y) && x < a[0] + (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1])) inside = !inside;
+  }
+  return inside;
+};
 const signedArea2 = pts => { let a = 0; for (let i = 0, n = pts.length; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; };
 const ID3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 const placeRows = (u, v, w) => [[u[0], v[0], w[0]], [u[1], v[1], w[1]], [u[2], v[2], w[2]]];   // columns u,v,w
