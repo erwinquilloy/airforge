@@ -242,22 +242,41 @@ function buildAircraft(A, opts = {}) {
   const socketFor = od => TUBES.find(q => q[1] >= od) || TUBES[TUBES.length - 1];
   /* Where the section runs out of depth for the main tube, a thinner one carries on outboard,
      sliding into the end of the main tube — the way Titan and the Interceptor step their spars. */
-  const stepOut = (run, nm) => {
+  /* the span a level bore covers around a seed station, without leaving the skin */
+  const spanAround = (line, r, seed, yLo, yHi) => {
+    if (!fitsAt(seed, line(seed)[0], line(seed)[1], r)) return null;
+    let a = seed, b = seed;
+    for (let y = seed; y >= yLo; y -= 4) { const q = line(y); if (!fitsAt(Math.max(y, yLo), q[0], q[1], r)) break; a = Math.max(y, yLo); }
+    for (let y = seed; y <= yHi; y += 4) { const q = line(y); if (!fitsAt(Math.min(y, yHi), q[0], q[1], r)) break; b = Math.min(y, yHi); }
+    return [a, b];
+  };
+  /* A wingtip spar: its own straight tube in the outer wing, parallel to the main spar and at
+     whatever chord station the thinner outer sections can take — the Trooper's 10 x 500 mm
+     wingtip spars beside its 10 x 1000 mm main spars, all retained by the printed parts. */
+  const tipSpar = (run, nm) => {
     if (!p.sparStep) return;
-    let from = run, guard = 0;
-    while (from.yEnd < half * 0.86 && guard++ < 3) {
-      const inner = TUBES.filter(q => q[0] <= from.tube[1] - 0.1).pop();
-      if (!inner) break;
-      const r2 = inner[0] / 2 + clr, end2 = reachOf(from.line, r2, from.yEnd, half * 0.97);
-      if (end2 < from.yEnd + 45) break;
-      const overlapIn = Math.min(60, Math.max(25, 0.06 * half));
-      const next = {id: from.id + 200 + guard, tube: inner, yStart: from.yEnd, yEnd: end2, line: from.line, r: r2,
-        continuous: false, axis: from.axis, stepped: true, overlapIn, parent: from.tube};
-      commit(next);
-      L.note("Structure", nm + " steps down at " + fmtN(from.yEnd) + " mm: a " + tubeLabel(inner) + " carries on to "
-        + fmtN(end2) + " mm, sliding " + fmtN(overlapIn) + " mm inside the end of the " + tubeLabel(from.tube) + ". Glue that joint."); 
-      from = next;
+    const yHi = half * 0.97, lap = Math.max(25, 0.07 * half);
+    const from = Math.max(run.yStart + 30, run.yEnd - lap);
+    if (yHi - from < 90) return;                                       // nothing worth a second tube
+    const seed = (from + yHi) / 2, anchor = W.wingAt(seed);
+    let best = null;
+    for (const tube of [run.tube, ...TUBES.filter(q => q[0] < run.tube[0]).reverse()]) {
+      const r2 = tube[0] / 2 + clr;
+      for (let u = 0.08; u <= 0.88; u += 0.02) {
+        const sk = skin(anchor, u), zW = W.dihZ(anchor.y) + (sk[0] + sk[1]) / 2, x = sk[2];
+        const line = y => [x, zW - W.dihZ(y)];
+        const sp = spanAround(line, r2, seed, from, yHi);
+        if (!sp || sp[1] - sp[0] < 90 || sp[1] < run.yEnd + 40) continue;
+        if (crosses(line, r2, sp[1])) continue;
+        if (!best || sp[1] > best.sp[1] + 5) best = {tube, r2, line, sp, u};
+      }
+      if (best) break;                                                 // the largest tube that fits wins
     }
+    if (!best) return;
+    commit({id: run.id + 300, tube: best.tube, yStart: best.sp[0], yEnd: best.sp[1], line: best.line, r: best.r2, continuous: false, tip: true});
+    L.note("Structure", nm + ": the outer wing carries its own " + tubeLabel(best.tube) + " from " + fmtN(best.sp[0]) + " to "
+      + fmtN(best.sp[1]) + " mm at " + fmtN(best.u * 100) + "% chord, parallel to the main spar and overlapping it by "
+      + fmtN(Math.max(0, run.yEnd - best.sp[0])) + " mm. It is held by the printed parts, not glued.");
   };
   A.tubes.forEach((t, id) => {
     const r = t.tube[0] / 2 + clr, pos = t.pos, nm = id ? "Rear spar" : "Main spar";
@@ -280,12 +299,12 @@ function buildAircraft(A, opts = {}) {
         const c = levelAt(u);
         if (clear(c)) all.push(Object.assign(c, {reach: reachOf(c.line, r, 0, half * 0.97)}));
       }
-      /* Asked for one tube through both wings: slide to wherever a straight tube reaches
-         furthest — on a delta that is just ahead of the straight trailing edge, and the tips
-         are simply too thin for any tube. On automatic, only move for a full-span station. */
-      const target = p.sparLayout === "continuous"
-        ? Math.max(0, ...all.map(c => c.reach)) - 0.02 * half : half * 0.9;
-      const good = all.filter(c => c.reach >= target && c.reach > 0).sort((a, b) => Math.abs(a.u - pos) - Math.abs(b.u - pos));
+      /* Slide to wherever a straight tube through both wings reaches furthest — on a delta that
+         is just ahead of the straight trailing edge. The tips are simply too thin for any tube;
+         a wingtip spar picks the outer wing up. Only move when it really buys span. */
+      const far = Math.max(0, ...all.map(c => c.reach));
+      const worth = p.sparLayout === "continuous" ? cont.reach : cont.reach + 0.15 * half;
+      const good = far >= worth ? all.filter(c => c.reach >= far - 0.05 * half).sort((a, b) => Math.abs(a.u - pos) - Math.abs(b.u - pos)) : [];
       if (good.length) cont = good[0];
     }
     const contReach = cont.reach;
@@ -295,18 +314,19 @@ function buildAircraft(A, opts = {}) {
     /* With a fuselage to glue sockets into, each wing carries its own tube and plugs in —
        that works at any sweep and dihedral, which one tube through the middle cannot.
        A wing with no fuselage has nothing to socket into, so it takes a tube all the way. */
-    const socketing = L.hasFuse && (p.sparLayout === "telescope" || p.sparLayout === "auto");
+    const socketing = L.hasFuse && (p.sparLayout === "telescope" || (p.sparLayout === "auto" && contReach < half * 0.5));
     const mode = p.sparLayout === "continuous" ? (contReach > half * 0.15 ? "cont" : "perside")
-      : socketing ? "perside"
-      : p.sparLayout === "perside" || p.sparLayout === "joiner" ? "perside"
-      : contReach >= half * 0.75 ? "cont" : "perside";
+      : p.sparLayout === "telescope" || p.sparLayout === "perside" || p.sparLayout === "joiner" ? "perside"
+      : contReach >= half * 0.5 ? "cont" : "perside";
     const where = " square to the centerline at " + fmtN(cont.u * 100) + "% of the root chord"
       + (Math.abs(cont.u - pos) > 0.03 ? " (asked for " + fmtN(pos * 100) + "%, but a straight tube cannot follow the sweep)" : "");
     if (mode === "cont") {
       const short = contReach < half * 0.85
         ? " " + nm + " reaches " + fmtN(contReach) + " mm of the " + fmtN(half) + " mm half span; outboard of that the section is too thin for the tube." : "";
-      commit({id: id * 4, tube: t.tube, yStart: 0, yEnd: contReach, line: cont.line, r, continuous: true, axis: "a" + id + "_c"});
-      L.note("Structure", nm + " is one continuous " + tubeLabel(t.tube) + " through the fuselage," + where + ", reaching " + fmtN(contReach) + " mm each side." + short);
+      const main = {id: id * 4, tube: t.tube, yStart: 0, yEnd: contReach, line: cont.line, r, continuous: true, axis: "a" + id + "_c"};
+      commit(main);
+      L.note("Structure", nm + " is one continuous " + tubeLabel(t.tube) + " through the fuselage," + where + ", reaching " + fmtN(contReach) + " mm each side. It is the wing joiner: slide it out and the wings come off." + short);
+      tipSpar(main, nm);
       if (L.hasFuse) sparPorts.push({x: cont.x, z: W.dihZ(0) + cont.line(0)[1], d: t.tube[0], label: nm.toLowerCase()});
       return;
     }
@@ -333,7 +353,7 @@ function buildAircraft(A, opts = {}) {
           + (inLine ? " The wing is flat and unswept here, so the two sockets can instead be one " + tubeLabel(sock) + " tube " + fmtN(2 * (hwF + overlap)) + " mm long straight through the fuselage." : ""));
       }
       commit(run);
-      stepOut(run, nm);
+      tipSpar(run, nm);
       if (L.hasFuse && y0 < 1) sparPorts.push({x: line(0)[0], z: W.dihZ(0) + line(0)[1], d: (run.socket || t.tube)[0], label: nm.toLowerCase()});
     });
     L.note("Structure", nm + ": one straight tube per side" + (p.sparLayout === "perside" ? "" : " (a continuous tube would reach only " + fmtN(contReach) + " mm)") + ".");
@@ -359,8 +379,8 @@ function buildAircraft(A, opts = {}) {
   });
   const sparXAt = y => spars.filter(sp => y >= sp.yStart - 1 && y <= sp.yEnd + 1).map(sp => [sp.line(y)[0], sp.r]);
   /* what to buy: a continuous tube spans both sides, otherwise one tube per side per run */
-  bom.sparRuns = spars.map(sp => ({tube: sp.tube, len: sp.yEnd - sp.yStart + (sp.telescope ? sp.overlap : 0) + (sp.stepped ? sp.overlapIn : 0) + (sp.continuous && !sp.telescope ? sp.yEnd : 0), count: sp.continuous && !sp.telescope ? 1 : 2, continuous: sp.continuous && !sp.telescope, telescope: !!sp.telescope, stepped: !!sp.stepped, joiner: !!sp.joiner,
-    role: sp.joiner ? "Center joiner" : sp.stepped ? (sp.id % 200 < 4 ? "Main" : "Rear") + " spar, outboard section" : (sp.id < 4 ? "Main spar" : "Rear spar")
+  bom.sparRuns = spars.map(sp => ({tube: sp.tube, len: sp.yEnd - sp.yStart + (sp.telescope ? sp.overlap : 0) + (sp.continuous && !sp.telescope ? sp.yEnd : 0), count: sp.continuous && !sp.telescope ? 1 : 2, continuous: sp.continuous && !sp.telescope, telescope: !!sp.telescope, tip: !!sp.tip, joiner: !!sp.joiner,
+    role: sp.joiner ? "Center joiner" : sp.tip ? (sp.id % 300 < 4 ? "Main" : "Rear") + " wingtip spar" : (sp.id < 4 ? "Main spar" : "Rear spar")
       + (sp.telescope ? ", telescopes into the fuselage socket" : sp.continuous ? ", continuous" : W.cranked && sp.yStart > 1 ? ", outer panel" : W.cranked ? ", inner panel" : "")}));
   for (const sp of spars) if (sp.telescope)                           // the socket each wing tube slides into
     bom.sparRuns.push({tube: sp.socket, len: sp.sockLen, count: 2, socket: true,
