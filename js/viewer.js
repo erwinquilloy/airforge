@@ -77,11 +77,8 @@ const Viewer = (() => {
     const a = alphaDeg != null ? alphaDeg * D2R : cr ? (cr.CL - ae.CL0) / ae.CLa : 0.05, ctx = flowContext({...A, aero: ae}, a);
     const NX = 36, NA = 24, tab = new Float32Array((NX + 1) * NA);
     for (let i = 0; i <= NX; i++) {
-      const x = F.L * i / NX, [hw, hh, zc] = F.profile(x);
-      for (let j = 0; j < NA; j++) {
-        const t = 2 * Math.PI * j / NA, cc = Math.cos(t), ss = Math.sin(t);
-        tab[i * NA + j] = cpAt([x, (hw + 3) * Math.sign(cc) * Math.pow(Math.abs(cc), 2 / 2.6), zc + (hh + 3) * Math.sign(ss) * Math.pow(Math.abs(ss), 2 / 2.6)], ctx);
-      }
+      const x = F.L * i / NX;
+      for (let j = 0; j < NA; j++) { const q = F.pt(x, 2 * Math.PI * j / NA, 3); tab[i * NA + j] = cpAt([x, q[0], q[1]], ctx); }
     }
     return (x, y, z) => {
       const u = Math.min(NX - 1e-6, Math.max(0, x / F.L * NX)), i = Math.floor(u), fu = u - i;
@@ -148,7 +145,7 @@ const Viewer = (() => {
       mesh.userData = {part: pt, baseColor: base};
       model.add(mesh);
     }
-    const L = a.L, p = a.p, tanG = Math.tan(p.dihedral * D2R);
+    const L = a.L, p = a.p, W = L.wing;
     const lineMat = (token, opacity = 0.9) => new THREE.MeshBasicMaterial({color: col(token), depthTest: false, transparent: true, opacity});
     const rod = (P0, P1, r, mat) => {
       const v0 = new THREE.Vector3(...P0), v1 = new THREE.Vector3(...P1), len = v0.distanceTo(v1);
@@ -159,20 +156,20 @@ const Viewer = (() => {
     };
     const carbon = lineMat("--carbon", 0.85);
     for (const sp of b.spars) for (const side of [1, -1]) {
-      const pt = y => { const [x, z] = sp.line(y); return [x, side * y, L.zWing + y * tanG + z]; };
-      rod(pt(0), pt(sp.yEnd), sp.tube[0] / 2, carbon);
+      const pt = y => { const [x, z] = sp.line(y); return [x, side * y, W.dihZ(y) + z]; };
+      rod(pt(sp.yStart), pt(sp.yEnd), sp.tube[0] / 2, carbon);
     }
     for (const bm of L.booms.filter(q => q.role === "tail")) for (const side of bm.mirrored ? [1, -1] : [1]) rod([bm.a[0], side * bm.a[1], bm.a[2]], [bm.b[0], side * bm.b[1], bm.b[2]], bm.tube[0] / 2, carbon);
     if (b.vtolBoom) {
       const vb = b.vtolBoom;
       for (const side of [1, -1]) {
-        const z = L.zWing + vb.yb * tanG + vb.zc;
+        const z = W.dihZ(vb.yb) + vb.zc;
         rod([vb.xf, side * vb.yb, z], [vb.xr, side * vb.yb, z], vb.d / 2, carbon);
         for (const x of [vb.xf, vb.xr]) propDisc([x, side * vb.yb, z + vb.d / 2 + 22], [0, 0, 1], p.liftPropD * IN / 2);
       }
     }
     if (b.wcs && b.wcs.pinR) for (const side of [1, -1]) {
-      const pt = y => { const [x, z] = b.wcs.line(y); return [x, side * y, L.zWing + y * tanG + z]; };
+      const pt = y => { const [x, z] = b.wcs.line(y); return [x, side * y, W.dihZ(y) + z]; };
       rod(pt(b.wcs.a - b.wcs.depth), pt(b.wcs.b + b.wcs.depth), 0.9, lineMat("--steel", 0.8));
     }
     function propDisc(pos, dir, R) {
@@ -211,7 +208,7 @@ const Viewer = (() => {
       halo.position.copy(m.position); halo.renderOrder = 4; halo.userData = {kind}; markers.add(halo);
     };
     if (L.hasFuse) {
-      const surf = (x, deg) => { const [hw, hh, zc] = L.fuse.profile(Math.min(L.fuse.L, Math.max(0, x))), a2 = deg * D2R, c2 = Math.cos(a2), s2 = Math.sin(a2); return [x, hw * Math.sign(c2) * Math.pow(Math.abs(c2), 2 / 2.6), zc + hh * Math.sign(s2) * Math.pow(Math.abs(s2), 2 / 2.6)]; };
+      const surf = (x, deg) => { const q = L.fuse.pt(x, deg * D2R); return [x, q[0], q[1]]; };
       if (p.intake) addHandle("intake", surf(p.intakeX + p.intakeL / 2, p.intakeAng), "--s1");
       if (p.exhaust) addHandle("exhaust", surf(p.exhaustX + 12, p.exhaustAng), "--s2");
       if (p.hatchBatt) addHandle("hatchBatt", surf((p.hatchBattAuto ? L.xw + p.battX - p.hatchBattLen / 2 : p.hatchBattX) + p.hatchBattLen / 2, 90), "--s3");
@@ -220,7 +217,7 @@ const Viewer = (() => {
       if (p.pod) addHandle("pod", surf(L.xw + p.podX + p.podL / 2, -90), "--part-mount");
     }
     if (b.servoMark || b.hornMark) {
-      const onWing = m => [m.x, m.s, L.zWing + m.s * tanG + m.z];
+      const onWing = m => [m.x, m.s, W.dihZ(m.s) + m.z];
       if (b.servoMark) addHandle("servo", onWing(b.servoMark), "--s1");
       if (b.hornMark) addHandle("horn", onWing(b.hornMark), "--s2");
     }

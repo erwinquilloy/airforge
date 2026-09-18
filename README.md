@@ -16,7 +16,7 @@ Opening `index.html` directly from disk also works.
 
 ## What it does
 
-**Configurations.** Tapered or swept wings (including forward sweep) and deltas, with an optional smooth wing-to-fuselage blend (chord and thickness grow into the fuselage side). Conventional, T-tail, V-tail, twin-boom and tailless layouts. Nose tractor, pusher and twin wing-mounted motors. Ten starting templates: FPV cruiser, twin-boom pusher, twin-motor, swept flying wing, forward-swept twin, plank, delta, blended long-range cruiser, quadplane and tailsitter.
+**Configurations.** Tapered or swept wings (including forward sweep) and deltas, single panel or cranked with a kink station that has its own sweep, taper and dihedral, plus canted winglets and an optional smooth wing-to-fuselage blend (chord and thickness grow into the fuselage side). The fuselage cross-section and side profile are editable: height split above and below the center line, flat top and flat bottom, widest station, nose fullness and tip size, tail-cone fullness and rise. Conventional, T-tail, V-tail, twin-boom and tailless layouts. Nose tractor, pusher and twin wing-mounted motors. Ten starting templates: FPV cruiser, twin-boom pusher, twin-motor, swept flying wing, forward-swept twin, plank, delta, blended long-range cruiser, quadplane and tailsitter.
 
 **Airfoils.** NACA 4- and 5-digit generators (including reflexed 5-digit sections for flying wings) and Selig/Lednicer `.dat` import from the UIUC database. Root, tip, body and tail sections blend along the span.
 
@@ -29,7 +29,7 @@ Opening `index.html` directly from disk also works.
 **Mission optimizer.** Differential evolution over span, aspect ratio, taper, airfoils, battery and optionally motor and propeller, subject to payload, range or endurance, stall, cruise speed, span and mass limits.
 
 **Printable parts.**
-- Wings and tails split at automatic or user-placed cuts, with spar bores sized to the chosen carbon tube or rod, and blind joiner-pin pockets at every cut
+- Wings and tails split at automatic or user-placed cuts, with spar bores sized to the chosen carbon tube or rod, and blind joiner-pin pockets at every cut. Cranked wings always split at the kink and carry one straight spar run per panel
 - Separate ailerons, elevons, elevators and rudders with a rounded pinned hinge, pin pockets in the wing and printed control horns
 - Servo pockets with glue-in servo frames and screw-on covers (M3 heat-set inserts); DS041MG-class, 9 g micro, slim or custom servos. Servo position, pocket offset and horn position, side and arm length are adjustable, and servos and horns can be dragged in the 3D view
 - Hollow fuselage shells with joiner sleeves, a replaceable FPV nose with camera cradle (spigot or 4 × M3 insert ring), battery and avionics hatches cut from the shell (front tongue plus magnet or screw latch), a swappable streamlined FPV canopy (blank, camera or GPS) over an avionics bay with a glue-in FC shelf, and an underslung pod on insert bosses

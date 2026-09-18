@@ -35,8 +35,7 @@ function coolingEstimate(A) {
   const p = A.p, L = A.L;
   if (!L.hasFuse || !(p.intake || p.exhaust) || !A.perf.cruise) return null;
   const ctx = flowContext(A, A.perf.cruise.alpha), ports = [];
-  const surf = (x, deg) => { const [hw, hh, zc] = L.fuse.profile(Math.min(L.fuse.L, Math.max(0, x))), a = deg * D2R, c = Math.cos(a), s = Math.sin(a);
-    return [x, hw * Math.sign(c) * Math.pow(Math.abs(c), 2 / 2.6) + 3 * c, zc + hh * Math.sign(s) * Math.pow(Math.abs(s), 2 / 2.6) + 3 * s]; };
+  const surf = (x, deg) => { const q = L.fuse.pt(x, deg * D2R, 3); return [x, q[0], q[1]]; };
   const depth = p.intakeL * Math.tan(7 * D2R);
   let cpI = null, cpE = null;
   if (p.intake) { cpI = cpAt(surf(p.intakeX + p.intakeL * 0.8, p.intakeAng), ctx); ports.push({kind: "intake", cp: cpI}); }

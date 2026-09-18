@@ -130,7 +130,7 @@ function buildFuseSeg(F, x0, x1, t, openings, step, n) {
   const ops = openings.filter(o => o.x1 > x0 + 0.2 && o.x0 < x1 - 0.2);
   for (const o of ops) { add(o.x0); add(o.x1); }
   const ys = [...S].sort((a, b) => a - b), N = ys.length;
-  const rings = ys.map(x => { const [hw, hh, zc] = F.profile(Math.min(F.L, Math.max(0, x))); return {o: superRing(hw, hh, zc, n), i: superRing(Math.max(0.5, hw - t), Math.max(0.5, hh - t), zc, n)}; });
+  const rings = ys.map(x => ({o: F.ring(x, n), i: F.ring(x, n, -t)}));
   const active = j => { const m = (ys[j] + ys[j + 1]) / 2; return ops.filter(o => m > o.x0 && m < o.x1); };
   const zones = [];
   for (let j = 0; j < N - 1; j++) {
@@ -180,33 +180,48 @@ function buildAircraft(A, opts = {}) {
   const warns = [];
 
   /* ================= wing features ================= */
-  const half = W.half, bounds = cutBounds(half, zUse, p.wingCuts, manual);
+  const half = W.half;
+  let bounds = cutBounds(half, zUse, p.wingCuts, manual);
+  if (W.cranked && W.yk > 15 && W.yk < half - 15) {                    // a cranked wing always splits at the kink
+    if (!bounds.some(v => Math.abs(v - W.yk) < 12)) bounds = [...bounds, W.yk].sort((a, b) => a - b);
+    for (let i = 1; i < bounds.length; i++) {
+      const len = bounds[i] - bounds[i - 1];
+      if (len > zUse) { const n = Math.ceil(len / zUse); for (let k = 1; k < n; k++) bounds.push(bounds[i - 1] + len * k / n); bounds.sort((a, b) => a - b); }
+    }
+  }
   const pin = p.pinSize !== "none" ? tubeFromKey(p.pinSize) : null, pinR = pin ? pin[0] / 2 + clr : 0;
   const skin = (w, u) => {                                             // twist-aware skin z at chord fraction u
     const P = foilPts(w, [0, u], p.minTE);
     return [P.up[1][1], P.lo[1][1], P.lo[1][0]];
   };
-  const spars = A.tubes.map((t, id) => {
+  /* One straight spar run per wing panel: a cranked wing needs its own tube outboard of the kink. */
+  const kinkSeg = W.cranked ? bounds.findIndex(v => Math.abs(v - W.yk) < 12) : -1;
+  const spars = [];
+  A.tubes.forEach((t, id) => {
     const r = t.tube[0] / 2 + clr, pos = t.pos;
-    const yA = Math.min(half * 0.5, W.blendEnd), yB = half * 0.9;
-    const pt = y => { const w = W.wingAt(y), [up, lo, x] = skin(w, pos); return [x, (up + lo) / 2]; };
-    const PA = pt(yA), PB = pt(yB);
-    const line = y => { const u = (y - yA) / (yB - yA); return [lerp(PA[0], PB[0], u), lerp(PA[1], PB[1], u)]; };
-    const fits = y => {
-      const w = W.wingAt(y), [lx, lz] = line(y), u = (lx - w.x) / w.c;
-      if (u < 0.05 || u > 0.9) return false;
-      const [up, lo] = skin(w, u);
-      return up - r - 1.2 >= lz && lo + r + 1.2 <= lz;
-    };
-    let segs = 0;
-    for (let i = 1; i < bounds.length; i++) {
-      let ok = true;
-      for (let k = 0; k <= 10; k++) if (!fits(lerp(bounds[i - 1], bounds[i], k / 10) * 0.999 + 0.001)) ok = false;
-      if (ok) segs = i; else break;
-    }
-    return segs ? {id, tube: t.tube, segs, yEnd: bounds[segs], line, r} : null;
-  }).filter(Boolean);
-  const sparXAt = y => spars.filter(sp => y <= sp.yEnd).map(sp => [sp.line(y)[0], sp.r]);
+    const runs = kinkSeg > 0 ? [[0, kinkSeg], [kinkSeg, bounds.length - 1]] : [[0, bounds.length - 1]];
+    runs.forEach(([segFrom, segMax], ri) => {
+      const y0 = bounds[segFrom], y1 = bounds[segMax];
+      const yA = Math.max(y0 + 1, Math.min(y0 + (y1 - y0) * 0.1, W.blendEnd)), yB = y1 - (y1 - y0) * 0.1;
+      const pt = y => { const w = W.wingAt(y), [up, lo, x] = skin(w, pos); return [x, (up + lo) / 2]; };
+      const PA = pt(yA), PB = pt(yB);
+      const line = y => { const u = (y - yA) / (yB - yA); return [lerp(PA[0], PB[0], u), lerp(PA[1], PB[1], u)]; };
+      const fits = y => {
+        const w = W.wingAt(y), [lx, lz] = line(y), u = (lx - w.x) / w.c;
+        if (u < 0.05 || u > 0.9) return false;
+        const [up, lo] = skin(w, u);
+        return up - r - 1.2 >= lz && lo + r + 1.2 <= lz;
+      };
+      let segs = segFrom;
+      for (let i = segFrom + 1; i <= segMax; i++) {
+        let ok = true;
+        for (let k = 0; k <= 10; k++) if (!fits(lerp(bounds[i - 1], bounds[i], k / 10) * 0.999 + 0.001)) ok = false;
+        if (ok) segs = i; else break;
+      }
+      if (segs > segFrom) spars.push({id: id * 4 + ri, tube: t.tube, segFrom, segs, yStart: bounds[segFrom], yEnd: bounds[segs], line, r});
+    });
+  });
+  const sparXAt = y => spars.filter(sp => y >= sp.yStart - 1 && y <= sp.yEnd + 1).map(sp => [sp.line(y)[0], sp.r]);
 
   /* control surfaces (ailerons / elevons) */
   let wcs = null;
@@ -307,8 +322,7 @@ function buildAircraft(A, opts = {}) {
   };
 
   /* ================= wing segments ================= */
-  const tanG = Math.tan(p.dihedral * D2R);
-  const toWorld = side => (x, s, z) => [x, side * s, L.zWing + s * tanG + z];
+  const toWorld = side => (x, s, z) => [x, side * s, W.dihZ(s) + z];
   const standRoot = side => side > 0 ? [[1, 0, 0], [0, 0, -1], [0, 1, 0]] : [[1, 0, 0], [0, 0, 1], [0, -1, 0]];
   const flatUp = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], flatDown = [[1, 0, 0], [0, -1, 0], [0, 0, -1]];
   const nSeg = bounds.length - 1;
@@ -318,7 +332,7 @@ function buildAircraft(A, opts = {}) {
     const segBays = bays.filter(b => b.a >= s0 - 0.1 && b.b <= s1 + 0.1);
     const pinsIn = pinsAt(s0), pinsOut = s1 < half - 1 ? pinsAt(s1) : [];
     const local = buildLiftSeg({s0, s1, step, breaks: W.breaks, sectionAt: W.wingAt, U, minTE: p.minTE, cs: wcs ? {...wcs, pin: wcs.pinR ? {line: wcs.line, r: wcs.pinR} : null} : null,
-      bays: segBays, spars: spars.filter(sp => si < sp.segs), pinsIn, pinsOut, pinR, pinDepth: p.pinDepth, meta: true});
+      bays: segBays, spars: spars.filter(sp => si >= sp.segFrom && si < sp.segs), pinsIn, pinsOut, pinR, pinDepth: p.pinDepth, meta: true});
     const extras = [];
     // control surface piece within this segment
     if (wcs && wcs.b > s0 + 1 && wcs.a < s1 - 1) {
@@ -377,7 +391,7 @@ function buildAircraft(A, opts = {}) {
     for (const side of [1, -1]) {
       const map = toWorld(side), sfx = side > 0 ? "R" : "L", segSfx = nSeg > 1 ? "_" + (si + 1) : "";
       const nPins = pinsIn.length + pinsOut.length;
-      const info = [...spars.filter(sp => si < sp.segs).map(sp => `${tubeLabel(sp.tube)} bore`), nPins ? `${nPins} × ${pin[0]} mm pin pockets` : "", segBays.length ? segBays.map(b => b.kind === "servo" ? "servo pocket" : "hardpoint pocket").join(", ") : ""].filter(Boolean).join(", ");
+      const info = [...spars.filter(sp => si >= sp.segFrom && si < sp.segs).map(sp => `${tubeLabel(sp.tube)} bore`), nPins ? `${nPins} × ${pin[0]} mm pin pockets` : "", segBays.length ? segBays.map(b => b.kind === "servo" ? "servo pocket" : "hardpoint pocket").join(", ") : ""].filter(Boolean).join(", ");
       part(`wing_${sfx}${segSfx}`, "wing", local.mapped(map, side < 0), standRoot(side), {seg: si, cp: true, side, info,
         settings: "Stand on the root face. 1–2 walls, 0% infill, 3 bottom layers, no supports. Add 2 perimeters around bores with a slicer modifier."});
       if (nPins) bom.pins.push(...Array(nPins).fill(p.pinDepth * 2));
@@ -468,7 +482,7 @@ function buildAircraft(A, opts = {}) {
   if (L.hasFuse) {
     const F = L.fuse, t = p.fuseWall;
     const idxRun = (x, ang, w) => {                                     // ring indices of an opening centered at angle
-      const [hw, hh, zc] = F.profile(Math.min(F.L, Math.max(0, x))), ring = superRing(hw, hh, zc, nRing);
+      const ring = F.ring(x, nRing);
       const kc = ((Math.round(ang / (2 * Math.PI) * nRing) % nRing) + nRing) % nRing;
       let m = 0, dist = 0;
       while (m < nRing / 2 - 3) { const a = ring[(kc + m) % nRing], b = ring[(kc + m + 1) % nRing]; dist += Math.hypot(b[0] - a[0], b[1] - a[1]); if (dist > w) break; m++; }
@@ -503,12 +517,12 @@ function buildAircraft(A, opts = {}) {
 
     const sleeve = xc => {
       const [hw, hh, zc] = F.profile(xc), m = new Mesh();
-      const mk = (x, dOut, dIn) => ({x, outer: superRing(hw - t + dOut, hh - t + dOut, zc, nRing), inner: superRing(hw - t + dIn, hh - t + dIn, zc, nRing), c: [0, zc]});
+      const mk = (x, dOut, dIn) => ({x, outer: F.ring(xc, nRing, -t + dOut), inner: F.ring(xc, nRing, -t + dIn), c: [0, zc]});
       m.add(loftTube([mk(xc - 10, 0.35, -1.2), mk(xc, 0.35, -1.2)]));
       m.add(loftTube([mk(xc - 3, -0.2, -1.1), mk(xc + 12, -0.2, -1.1)]));
       return m;
     };
-    const endCap = (x, back) => { const [hw, hh, zc] = F.profile(x); return plate(superRing(hw - 0.2, hh - 0.2, zc, nRing), [], 1.4).transformed([[0, 0, 1], [1, 0, 0], [0, 1, 0]], [back ? x - 1.4 : x, 0, 0]); };
+    const endCap = (x, back) => { return plate(F.ring(x, nRing, -0.2), [], 1.4).transformed([[0, 0, 1], [1, 0, 0], [0, 1, 0]], [back ? x - 1.4 : x, 0, 0]); };
     const replaceable = p.noseMode === "replaceable";
     const xStart = replaceable ? Math.min(p.noseSplit, F.L * 0.5) : 0;
     const fb = manual ? [xStart, ...parseCuts(p.fuseCuts).filter(v => v > xStart + 20 && v < F.L - 20), F.L] : cutBounds(F.L - xStart, zUse, "", false).map(v => v + xStart);
@@ -546,9 +560,9 @@ function buildAircraft(A, opts = {}) {
     /* NACA duct inserts */
     for (const o of openings.filter(q => q.kind === "intake")) {
       const xm = o.x0, kc = o.idx[(o.idx.length - 1) / 2];
-      const [hw0, hh0, zc0] = F.profile(xm), P0 = superRing(hw0, hh0, zc0, nRing)[kc];
-      const en = vnorm([0, P0[0], P0[1] - zc0]), ex = [1, 0, 0], el = vcross(en, ex);
-      const surfOff = x => { const [hw, hh, zc] = F.profile(Math.min(F.L, x)), q = superRing(hw, hh, zc, nRing)[kc]; return (q[0] - P0[0]) * en[1] + (q[1] - P0[1]) * en[2]; };
+      const P0 = F.ring(xm, nRing)[kc], zcIn = F.profile(xm)[2];
+      const en = vnorm([0, P0[0], P0[1] - zcIn]), ex = [1, 0, 0], el = vcross(en, ex);
+      const surfOff = x => { const q = F.ring(x, nRing)[kc]; return (q[0] - P0[0]) * en[1] + (q[1] - P0[1]) * en[2]; };
       const Ld = o.x1 - o.x0, Wd = p.intakeW / 2, nS = quick ? 6 : 14, ys = [], wt = 1.2;
       for (let i = 0; i <= nS; i++) ys.push(Ld * i / nS);
       const halfW = s => Wd * (0.22 + 0.78 * Math.pow(smooth(s / Ld), 0.75));
@@ -568,7 +582,7 @@ function buildAircraft(A, opts = {}) {
     /* battery tray */
     if (p.battTray) {
       const bd = batteryDims(p), xb = L.xw + p.battX, x0 = xb - bd.L / 2 - 8, x1 = xb + bd.L / 2 + 8, halfW = bd.W / 2 + 4;
-      const floorZ = (x, y) => { const [hw, hh, zc] = F.profile(Math.min(F.L, Math.max(0, x))), hwi = hw - t, hhi = hh - t, u = Math.min(0.999, Math.abs(y) / hwi); return zc - hhi * Math.pow(1 - Math.pow(u, 2.6), 1 / 2.6); };
+      const floorZ = (x, y) => F.zAt(x, y, -t, true);
       const ry = halfW - 5;
       let zT = -Infinity; for (let x = x0; x <= x1; x += 5) zT = Math.max(zT, floorZ(x, ry) + 3);
       const slots = [];
@@ -585,7 +599,7 @@ function buildAircraft(A, opts = {}) {
       bom.straps += 2;
     }
     /* canopy fairing (Titan Falcon style) on top of the lid bands */
-    const surfTop = (x, y) => { const [hw, hh, zc] = F.profile(Math.min(F.L, Math.max(0, x))), u = Math.min(1, Math.abs(y) / hw); return zc + hh * Math.pow(Math.max(0, 1 - Math.pow(u, 2.6)), 1 / 2.6); };
+    const surfTop = (x, y) => F.zAt(x, y, 0, false);
     function addCanopy(lid, o, loftX) {
       const tf = 1.2, wf = o.w - 2.5, xa = o.x0 + 1, xb = o.x1 - 1, cam = +p.camSize, style = p.canopyStyle;
       const H = style === "camera" ? Math.max(p.canopyH, cam + 10) : p.canopyH, hMin = tf + 1.6, E = 2.4, mA = 18;
@@ -628,10 +642,7 @@ function buildAircraft(A, opts = {}) {
       let zRim = Infinity; for (let x = x0; x <= x1; x += 4) zRim = Math.min(zRim, surfTop(x, 0));
       const zs = zRim - p.fcShelfDepth;
       let half = Infinity;
-      for (let x = x0; x <= x1; x += 4) {
-        const [hw, hh, zc] = F.profile(x), hwi = hw - t, hhi = hh - t, v = (zs + 2 - zc) / hhi;
-        half = Math.min(half, Math.abs(v) >= 1 ? 0 : hwi * Math.pow(1 - Math.pow(Math.abs(v), 2.6), 1 / 2.6) - 0.5);
-      }
+      for (let x = x0; x <= x1; x += 4) half = Math.min(half, F.halfAt(x, zs + 2, -t) - 0.5);
       const pat = +p.deckPattern / 2, cx = (x0 + x1) / 2;
       if (half < pat + 4) { warns.push("The FC shelf is too narrow for the stack pattern at that depth; raise the shelf or widen the fuselage."); return; }
       const holes = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => circle(cx + a * pat, b * pat, 1.65, 12));
@@ -641,8 +652,8 @@ function buildAircraft(A, opts = {}) {
     }
     /* hatch lids: the removed shell sector, a front tongue under the rim and a rear latch rail */
     for (const o of hatches) {
-      const E = 2.6, n0 = o.idx[0] - 1, n1 = o.idx[o.idx.length - 1] + 1;
-      const ringAt = (x, k, off) => { const [hw, hh, zc] = F.profile(Math.min(F.L, Math.max(0, x))), a = 2 * Math.PI * k / nRing, c = Math.cos(a), s = Math.sin(a); return [(hw + off) * Math.sign(c) * Math.pow(Math.abs(c), 2 / E), zc + (hh + off) * Math.sign(s) * Math.pow(Math.abs(s), 2 / E)]; };
+      const n0 = o.idx[0] - 1, n1 = o.idx[o.idx.length - 1] + 1;
+      const ringAt = (x, k, off) => F.pt(x, 2 * Math.PI * k / nRing, off);
       const sector = (ka, kb, offOut, offIn, m) => x => {
         const out = [], inn = [];
         for (let i = 0; i <= m; i++) { const k = lerp(ka, kb, i / m); out.push(ringAt(x, k, offOut)); inn.push(ringAt(x, k, offIn)); }
@@ -665,17 +676,17 @@ function buildAircraft(A, opts = {}) {
       lid.add(loftX(o.x0 - 9, o.x0 + 0.45, sector(ka + kSpan * 0.2, kb - kSpan * 0.2, -t - 0.3, -t - 1.6, m), 3));        // tongue under the rim
       lid.add(loftX(o.x0 - 1, o.x0 + 7, sector(ka + kSpan * 0.2, kb - kSpan * 0.2, -t + 0.6, -t - 1.6, m), 3));          // tongue root, fused to the lid
       // rear latch: tab on the lid, rail glued in the fuselage
-      const xr0 = o.x1 - 14, xr1 = o.x1 - 2, [hwr, hhr, zcr] = F.profile((xr0 + xr1) / 2), hwi = hwr - t, hhi = hhr - t;
-      const zInner = y => zcr + hhi * Math.pow(Math.max(0, 1 - Math.pow(Math.min(1, Math.abs(y) / hwi), E)), 1 / E);
+      const xr0 = o.x1 - 14, xr1 = o.x1 - 2, xrm = (xr0 + xr1) / 2;
+      const zInner = y => F.zAt(xrm, y, -t, false);
       const yl = o.w - 1.5, magnet = p.hatchLatch === "magnets";
       const holeR = magnet ? p.magnetD / 2 : clearR, railHoleR = magnet ? p.magnetD / 2 : insR, railTh = magnet ? 3.4 : p.insertDepth + 1;
       const zTab = Math.min(zInner(yl), zInner(0)) - 3.2;
       // keep both latch holes inside the (possibly narrow) rail and tab; one center hole on slim pods
-      const railTop0 = zTab - 0.25, ySpan0 = Math.min(hwi - 0.2, hwi * Math.pow(Math.max(0, 1 - Math.pow(Math.max(0, (railTop0 - zcr) / hhi), E)), 1 / E) + 0.8);
+      const railTop0 = zTab - 0.25, ySpan0 = F.halfAt(xrm, railTop0, -t) + 0.8;
       const yh = Math.min(yl - 5, ySpan0 - Math.max(holeR, railHoleR) - 1.8, yl - holeR - 1.8);
       const holesXY = yh > Math.max(holeR, railHoleR) + 1.2 ? [[xr0 + 6, yh], [xr0 + 6, -yh]] : [[xr0 + 6, 0]];
       lid.add(plate(roundRect(xr0, -yl, xr1, yl, 2), holesXY.map(([x, y]) => circle(x, y, holeR, 18)), zInner(yl) + t * 0.5 - zTab).transformed(ID3, [0, 0, zTab]));
-      const railTop = zTab - 0.25, ySpan = Math.min(hwi - 0.2, hwi * Math.pow(Math.max(0, 1 - Math.pow(Math.max(0, (railTop - zcr) / hhi), E)), 1 / E) + 0.8);
+      const railTop = railTop0, ySpan = ySpan0;
       const rail = plate(roundRect(xr0, -ySpan, xr1, ySpan, 2), holesXY.map(([x, y]) => circle(x, y, railHoleR, 18)), railTh).transformed(ID3, [0, 0, railTop - railTh]);
       const lidName = {hatchBatt: "battery_hatch", hatchAv: "avionics_hatch", deck: "fpv_canopy"}[o.id];
       part(lidName, canopy ? "mount" : "fuse", lid, canopy ? flatUp : standX, {info: (canopy ? {blank: "blank fairing", camera: "camera cradle", gps: "GPS pad"}[p.canopyStyle] + ", " : "") + (magnet ? "2 × 6×3 mm magnets" : "2 × M3 screws"),
@@ -689,13 +700,13 @@ function buildAircraft(A, opts = {}) {
     if (replaceable) {
       const cam = +p.camSize, xs = xStart, nose = buildFuseSeg(F, 0, xs, t, openings, fuseStep, nRing);
       const [hw0, hh0, zc0] = F.profile(xs);
-      const mk = (x, dOut, dIn) => ({x, outer: superRing(hw0 - t + dOut, hh0 - t + dOut, zc0, nRing), inner: superRing(hw0 - t + dIn, hh0 - t + dIn, zc0, nRing), c: [0, zc0]});
+      const mk = (x, dOut, dIn) => ({x, outer: F.ring(xs, nRing, -t + dOut), inner: F.ring(xs, nRing, -t + dIn), c: [0, zc0]});
       if (p.noseAttach === "spigot") {
         nose.add(loftTube([mk(xs - 10, 0.35, -1.3), mk(xs, 0.35, -1.3)]));
         nose.add(loftTube([mk(xs - 3, -0.25, -1.3), mk(xs + 12, -0.25, -1.3)]));
       } else {
-        const ringHoles = r => [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => { const ang = Math.atan2(b, a), c = Math.cos(ang), s = Math.sin(ang); return circle((hw0 - t - 3.6) * Math.sign(c) * Math.pow(Math.abs(c), 2 / 2.6), zc0 + (hh0 - t - 3.6) * Math.sign(s) * Math.pow(Math.abs(s), 2 / 2.6), r, 16); });
-        const outerR = off => superRing(hw0 - t + off, hh0 - t + off, zc0, nRing), innerR = superRing(hw0 - t - 7.2, hh0 - t - 7.2, zc0, nRing).reverse();
+        const ringHoles = r => [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => { const q = F.pt(xs, Math.atan2(b, a), -t - 3.6); return circle(q[0], q[1], r, 16); });
+        const outerR = off => F.ring(xs, nRing, -t + off), innerR = F.ring(xs, nRing, -t - 7.2).reverse();
         const yz = [[0, 0, 1], [1, 0, 0], [0, 1, 0]];
         nose.add(plate(outerR(0.4), [innerR, ...ringHoles(clearR)], 3).transformed(yz, [xs - 3, 0, 0]));
         const ringM = plate(outerR(-0.1), [innerR, ...ringHoles(insR)], p.insertDepth).transformed(yz, [xs + 0.3, 0, 0]);
@@ -712,10 +723,10 @@ function buildAircraft(A, opts = {}) {
     }
     for (const mo of L.motors) {
       if (mo.mount === "firewall" && mo.dir[0] < 0) {
-        const [hw, hh, zc] = F.profile(0), hwi = hw - t, hhi = hh - t, bpts = [];
+        const [hw, hh, zc] = F.profile(0), bpts = [];
         for (const [cy, cz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-          const a = Math.atan2(cz, cy), c = Math.cos(a), s = Math.sin(a);
-          bpts.push([Math.sign(c) * hwi * Math.pow(Math.abs(c), 2 / 2.6) * 0.72, zc + Math.sign(s) * hhi * Math.pow(Math.abs(s), 2 / 2.6) * 0.72]);
+          const q = F.pt(0, Math.atan2(cz, cy), -t);
+          bpts.push([q[0] * 0.72, zc + (q[1] - zc) * 0.72]);
         }
         const inner = mountHoles(p.mountPattern, L.main).span / 2 + clearR + 1;
         const usable = bpts.filter(([y, z]) => Math.hypot(y, z - zc) > inner);
@@ -790,10 +801,10 @@ function buildAircraft(A, opts = {}) {
   if (p.jigs && !quick) {
     const stations = [...new Set([Math.max(8, W.blendEnd + 6), ...bounds.slice(1, -1).map(v => v - 12), half - 12])].filter(v => v > W.blendEnd && v < half);   // jigs sit outboard of any root blend
     let zBase = Infinity;
-    for (let y = 0; y <= half; y += half / 20) { const w = W.wingAt(y), P = foilPts(w, U, p.minTE); zBase = Math.min(zBase, L.zWing + y * tanG + Math.min(...P.lo.map(q => q[1]))); }
+    for (let y = 0; y <= half; y += half / 20) { const w = W.wingAt(y), P = foilPts(w, U, p.minTE); zBase = Math.min(zBase, W.dihZ(y) + Math.min(...P.lo.map(q => q[1]))); }
     zBase -= 18;
     for (const y of stations) {
-      const w = W.wingAt(y), P = foilPts(w, U, p.minTE), zOff = L.zWing + y * tanG;
+      const w = W.wingAt(y), P = foilPts(w, U, p.minTE), zOff = W.dihZ(y);
       const ring = [...P.lo, ...P.up.slice(1).reverse()].map(([x, z]) => [x, z + zOff]);
       const hole = offsetRing(signedArea2(ring) > 0 ? ring : ring.slice().reverse(), 0.35);
       const xs = hole.map(q => q[0]), zs = hole.map(q => q[1]);

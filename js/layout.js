@@ -22,6 +22,9 @@ function makeLayout(p) {
   const half = p.span / 2;
   const cr = p.rootChord, ct = cr * p.taper;
   const outerLen = half;
+  // cranked wing: inner panel to the kink, then its own sweep, taper and dihedral
+  const cranked = p.panels === "2" && p.wingType !== "delta";
+  const yk = cranked ? p.kinkPos * half : 0, ck = cranked ? cr * p.kinkChord : cr;
   // wing–fuselage blend starts just inside the fuselage side
   const blend = hasFuse && p.wingBlend, yf = blend ? p.fuseW / 2 * 0.85 : 0, yBlendEnd = blend ? Math.min(half * 0.6, yf + p.blendSpan) : 0;
   let tanLE = Math.tan(p.sweep * D2R);
@@ -29,7 +32,8 @@ function makeLayout(p) {
     tanLE = ((cr - ct) + outerLen * Math.tan(p.teSweep * D2R)) / outerLen;
     note("Wing", `Delta leading-edge sweep ${fmtN(Math.atan(tanLE) / D2R, 1)}° follows from the ${fmtN(cr)} mm root, ${fmtN(ct)} mm tip and ${p.teSweep}° trailing edge.`);
   }
-  const tanDih = Math.tan(p.dihedral * D2R);
+  const tanDih = Math.tan(p.dihedral * D2R), tanDih2 = Math.tan((cranked ? p.dihedralOuter : p.dihedral) * D2R);
+  const tanLE2 = cranked ? Math.tan(p.sweepOuter * D2R) : 0;
   const xw = hasFuse ? p.noseLen : 0;
   const podTailless = p.fuseType === "pod" && (tailless);
   const zWing = !hasFuse ? 0 : podTailless ? 0 : p.tailType === "twinboom" ? p.fuseH * 0.32 : p.fuseH * 0.2;
@@ -37,15 +41,19 @@ function makeLayout(p) {
   /* wing section at spanwise station y >= 0 */
   function wingAt(y) {
     const v = y / outerLen;
-    let xl = y * tanLE, c = cr + (ct - cr) * v, thick = 1;
+    let xl, c, thick = 1;
+    if (!cranked) { xl = y * tanLE; c = cr + (ct - cr) * v; }
+    else if (y <= yk) { xl = y * tanLE; c = lerp(cr, ck, y / Math.max(1, yk)); }
+    else { xl = yk * tanLE + (y - yk) * tanLE2; c = lerp(ck, ct, (y - yk) / Math.max(1, half - yk)); }
     if (blend && y < yBlendEnd) {
       const k = 1 - smooth((y - yf) / (yBlendEnd - yf));            // 1 at the fuselage side, 0 where the blend ends
       const c2 = c * (1 + (p.blendChord - 1) * k);
       xl -= (c2 - c) * 0.6; c = c2; thick = 1 + (p.blendThick - 1) * k;
     }
-    return {x: xw + xl, y, z: zWing + y * tanDih, c, fA: fRoot, fB: fTip, s: v, twist: -p.washout * v, thick};
+    return {x: xw + xl, y, z: dihZ(y), c, fA: fRoot, fB: fTip, s: v, twist: -p.washout * v, thick};
   }
-  const wingBreaks = [0, yf, yBlendEnd, half].filter((v, i, a) => v >= 0 && v <= half && a.indexOf(v) === i).sort((a, b) => a - b);
+  const dihZ = y => zWing + (cranked && y > yk ? yk * tanDih + (y - yk) * tanDih2 : y * tanDih);
+  const wingBreaks = [0, yf, yBlendEnd, cranked ? yk : 0, half].filter((v, i, a) => v >= 0 && v <= half && a.indexOf(v) === i).sort((a, b) => a - b);
   if (blend) note("Wing", `Root blended into the fuselage over ${fmtN(yBlendEnd - yf)} mm: chord ×${p.blendChord}, thickness ×${p.blendThick} at the fuselage side.`);
 
   // integrate wing reference quantities
@@ -57,7 +65,7 @@ function makeLayout(p) {
   const S = 2 * S2, mac = 2 * c2 / S, xMacLE = 2 * xc / S, yMac = yc / S2;
   const AR = p.span ** 2 / S;
   const xacW = xMacLE + 0.25 * mac;
-  const wing = {half, S, mac, xMacLE, yMac, AR, xacW, xCentroid: xCent / S2, cr, ct, tanLE, bw2: 0, y0: 0, blendEnd: yBlendEnd, wingAt, breaks: wingBreaks, fRoot, fTip};
+  const wing = {half, S, mac, xMacLE, yMac, AR, xacW, xCentroid: xCent / S2, cr, ct, tanLE, bw2: 0, y0: 0, blendEnd: yBlendEnd, cranked, yk, dihZ, wingAt, breaks: wingBreaks, fRoot, fTip};
   const xTEat = y => { const w = wingAt(y); return w.x + w.c; };
 
   /* ---- fuselage ---- */
@@ -85,28 +93,32 @@ function makeLayout(p) {
   }
   // fuselage length depends on the tail
   const fuseLenFor = xEnd => Math.max(xEnd, xw + cr);
-  function tailCone(x, L) {                                         // pod-and-boom / full profile
-    const W = p.fuseW / 2, H = p.fuseH / 2, bd = p.boomD / 2;
-    const xn = Math.min(Math.max(40, p.noseLen * 0.85), L * 0.35);
-    const xt = xw + cr * 1.05;
-    if (x <= xn) { const u = x / xn, s = 0.42 + 0.58 * Math.sqrt(Math.max(0, 1 - (1 - u) ** 2)); return [W * s, H * s, 0]; }
-    if (x <= xt) return [W, H, 0];
-    const u = Math.min(1, (x - xt) / Math.max(1, (L * 0.9 - xt))), e = 0.5 - 0.5 * Math.cos(Math.PI * u);
-    const endW = p.fuseType === "full" ? Math.max(bd, W * 0.4) : bd, endH = p.fuseType === "full" ? Math.max(bd, H * 0.4) : bd;
-    const hw = W + (endW - W) * e, hh = H + (endH - H) * e;
-    return [hw, hh, (H - hh) * 0.55];
-  }
-  function podShape(x, L) {
-    const W = p.fuseW / 2, H = p.fuseH / 2, u = x / L;
-    const s = u < 0.35 ? 0.42 + 0.58 * Math.sqrt(Math.max(0, 1 - (1 - u / 0.35) ** 2)) : u < 0.7 ? 1 : 1 - 0.55 * smooth((u - 0.7) / 0.3);
-    return [W * s, H * s, 0];
-  }
+  /* Side and plan profile from the shape controls. Returns [half width, half height, center z]:
+     the section is a superellipse whose top and bottom halves can have different flatness. */
+  const shapeOf = (x, L, pod) => {
+    const W = p.fuseW / 2, hTop = p.fuseH * p.topFrac, hBot = p.fuseH * (1 - p.topFrac), bd = p.boomD / 2;
+    const xm0 = Math.min(L * 0.7, Math.max(25, p.maxAtX * L));                       // widest station
+    const xm1 = pod ? L * 0.62 : Math.min(L * 0.92, Math.max(xm0 + 10, xw + cr * 1.05));   // start of the tail cone
+    let s = 1, e = 0;
+    if (x <= xm0) {
+      const u = Math.min(1, Math.max(0, x / xm0));
+      s = p.noseBlunt + (1 - p.noseBlunt) * Math.pow(Math.max(0, 1 - (1 - u) ** 2), 0.5 * p.noseShape);
+    } else if (x > xm1) {
+      const v = Math.min(1, (x - xm1) / Math.max(1, L * (pod ? 1 : 0.95) - xm1));
+      e = Math.pow(0.5 - 0.5 * Math.cos(Math.PI * v), p.tailShape);
+      const endS = pod ? 0.45 : Math.min(1, Math.max(bd / Math.max(W, (hTop + hBot) / 2), p.fuseType === "full" ? 0.4 : 0.05));
+      s = 1 + (endS - 1) * e;
+    }
+    const top = hTop * s, bot = hBot * s;
+    const rise = (hTop - top) * p.tailRise * (x > xm1 ? 1 : 0);
+    return [Math.max(1.5, W * s), Math.max(1.5, (top + bot) / 2), (top - bot) / 2 + rise];
+  };
 
   if (p.tailType === "conv" || p.tailType === "ttail" || p.tailType === "vtail") {
     // tail height: top of fuselage/boom line
     if (p.fuseType === "podboom" || p.fuseType === "full") {
       const Lguess = tailX + 0.6 * Math.sqrt(tail.Sh / p.hAR) * 0.5 + 60;
-      const [, hh, zc] = tailCone(tailX, Lguess); zTail = zc + hh * 0.3;
+      const [, hh, zc] = shapeOf(tailX, Lguess, false); zTail = zc + hh * 0.3;
     } else {
       zTail = hasFuse ? p.fuseH * 0.25 : zWing;
     }
@@ -151,20 +163,33 @@ function makeLayout(p) {
     tail = {Sh: 0, Sv, arm: w0.x + w0.c - fc * 0.5 - xacW};
     tail.xEnd = w0.x + w0.c;
     note("Tail", `Center fin ${fmtN(Sv / 1e4, 1)} dm² sized from vertical tail volume ${p.vVol} using the short arm to the wing trailing edge.`);
-  } else if (p.tailType === "none" && p.tipFins) {
-    const w = wingAt(half), h = p.tipFinH, fc = w.c * 0.95;
-    tipFins.push({name: "tipfin", st: panel([w.x + w.c - fc, half, w.z], [0, 0, 1], h, fc, fc * 0.55, Math.tan(35 * D2R), 3, fTail)});
+  }
+  if (p.tipFins) {
+    const w = wingAt(half), h = p.tipFinH, fc = w.c * 0.95, ca = p.wingletCant * D2R;
+    tipFins.push({name: p.wingletCant > 5 ? "winglet" : "tipfin", st: panel([w.x + w.c - fc, half, w.z], [0, Math.sin(ca), Math.cos(ca)], h, fc, fc * 0.55, Math.tan(35 * D2R), 3, fTail)});
   }
 
   // fuselage length & profile
   if (p.fuseType === "podboom" || p.fuseType === "full") fuse.L = fuseLenFor(tail.xEnd || (xw + cr * 1.6));
   else if (p.fuseType === "pod") fuse.L = Math.max(p.podLen, 60);
-  fuse.profile = x => {
-    if (p.fuseType === "pod") return podShape(x, fuse.L);
-    return tailCone(x, fuse.L);
+  fuse.E = [lerp(2.2, 6, p.topFlat), lerp(2.2, 6, p.botFlat)];      // superellipse exponents: 2 = ellipse, high = boxy
+  fuse.profile = x => shapeOf(Math.min(fuse.L, Math.max(0, x)), fuse.L, p.fuseType === "pod");
+  /* helpers so every ring, surface point and hatch edge uses the same section */
+  fuse.ring = (x, n, off = 0) => { const [hw, hh, zc] = fuse.profile(x); return superRing(Math.max(0.4, hw + off), Math.max(0.4, hh + off), zc, n, fuse.E); };
+  fuse.pt = (x, ang, off = 0) => {
+    const [hw, hh, zc] = fuse.profile(x), c = Math.cos(ang), s = Math.sin(ang), E = s >= 0 ? fuse.E[0] : fuse.E[1];
+    return [(hw + off) * Math.sign(c) * Math.pow(Math.abs(c), 2 / E), zc + (hh + off) * Math.sign(s) * Math.pow(Math.abs(s), 2 / E)];
+  };
+  fuse.zAt = (x, y, off = 0, lower) => {                             // surface z above (or below) a lateral offset
+    const [hw, hh, zc] = fuse.profile(x), E = lower ? fuse.E[1] : fuse.E[0], u = Math.min(1, Math.abs(y) / Math.max(0.4, hw + off));
+    return zc + (lower ? -1 : 1) * (hh + off) * Math.pow(Math.max(0, 1 - Math.pow(u, E)), 1 / E);
+  };
+  fuse.halfAt = (x, z, off = 0) => {                                 // lateral half width where the surface reaches z
+    const [hw, hh, zc] = fuse.profile(x), E = z >= zc ? fuse.E[0] : fuse.E[1], v = Math.abs(z - zc) / Math.max(0.4, hh + off);
+    return v >= 1 ? 0 : (hw + off) * Math.pow(1 - Math.pow(v, E), 1 / E);
   };
   if (p.fuseType === "pod" && (p.tailType === "conv" || p.tailType === "ttail" || p.tailType === "vtail")) {
-    const x0 = fuse.L * 0.72, [, hh] = podShape(x0, fuse.L);
+    const x0 = fuse.L * 0.72, [, hh] = shapeOf(x0, fuse.L, true);
     booms.push({a: [x0, 0, hh * 0.35], b: [tail.xEnd, 0, zTail], tube: tubeFor(tail.xEnd - x0, 4), mirrored: false, role: "tail"});
     note("Fuselage", "Short pod with a single carbon tail boom; the tail surfaces clamp to its end.");
   }

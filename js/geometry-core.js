@@ -188,10 +188,14 @@ const roundRect = (x0, y0, x1, y1, r) => {
   for (const [cx, cy, a0] of c) for (let i = 0; i <= 4; i++) { const a = (a0 + 22.5 * i) * D2R; pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); }
   return pts;
 };
-const superRing = (hw, hh, zc, n, E = 2.6) => Array.from({length: n}, (_, k) => {
-  const a = 2 * Math.PI * k / n, c = Math.cos(a), s = Math.sin(a);
-  return [hw * Math.sign(c) * Math.pow(Math.abs(c), 2 / E), zc + hh * Math.sign(s) * Math.pow(Math.abs(s), 2 / E)];
-});
+/* superellipse ring; E may be one exponent or [top, bottom] for a flatter deck or belly */
+const superRing = (hw, hh, zc, n, E = 2.6) => {
+  const [Et, Eb] = Array.isArray(E) ? E : [E, E];
+  return Array.from({length: n}, (_, k) => {
+    const a = 2 * Math.PI * k / n, c = Math.cos(a), s = Math.sin(a), e = s >= 0 ? Et : Eb;
+    return [hw * Math.sign(c) * Math.pow(Math.abs(c), 2 / e), zc + hh * Math.sign(s) * Math.pow(Math.abs(s), 2 / e)];
+  });
+};
 /* outward offset of a CCW polygon (small distances) */
 function offsetRing(pts, d) {
   const n = pts.length;

@@ -127,7 +127,7 @@ function analyze(p, opts = {}) {
     const share = p.spar2Pos > 0 ? [0.72, 0.28] : [1];
     const pos = p.spar2Pos > 0 ? [p.sparPos, p.spar2Pos] : [p.sparPos];
     tubes = pos.map((ps, i) => {
-      const depth = Math.min(...[W.blendEnd, W.half * 0.15].map(y => fitAt(Math.min(y, W.half), ps)));
+      const depth = Math.min(...[W.blendEnd, W.half * 0.15, W.cranked ? W.yk + 5 : 0].map(y => fitAt(Math.min(y, W.half), ps)));
       const wallNeed = d => d + 2 * p.fitClear + 2.4;
       const manual = tubeFromKey(i ? p.spar2Size : p.spar1Size);
       const auto = TUBES.find(tb => M_root * share[i] / tubeZ(tb) <= CARBON_ALLOW && wallNeed(tb[0]) <= depth);
