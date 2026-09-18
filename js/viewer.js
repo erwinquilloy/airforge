@@ -44,6 +44,10 @@ const Viewer = (() => {
 
   /* ---------------- coloring ---------------- */
   const GROUP_COLOR = {wing: "--part-a", tail: "--part-a", fuse: "--part-a", ctrl: "--part-ctrl", mount: "--part-mount", vtol: "--part-vtol", cool: "--part-cool", jig: "--part-b"};
+  /* parts that come off the airframe again — hatches, covers, the swappable nose and pods —
+     read as one family, apart from the moving control surfaces and from the glued structure */
+  const OPEN_PART = /^(?:[a-z]+_)?(fpv_nose|fpv_canopy|underslung_pod|battery_hatch|avionics_hatch|servo_cover)(_[LR]|_\d+)*$/;
+  const partColor = pt => OPEN_PART.test(pt.name) ? "--part-open" : GROUP_COLOR[pt.group] || "--part-a";
   function cpColor(cp, out) {
     const neg = col("--s1"), pos = col("--s2"), mid = col("--part-a");
     const t = Math.max(-1, Math.min(1, cp < 0 ? cp / 1.5 : cp));
@@ -139,7 +143,7 @@ const Viewer = (() => {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(pt.tris, 3));
       geo.computeVertexNormals();
-      const base = segShade(col(GROUP_COLOR[pt.group] || "--part-a"), pt.seg || 0);
+      const base = segShade(col(partColor(pt)), pt.seg || 0);
       const mat = new THREE.MeshStandardMaterial({color: base.clone(), roughness: 0.78, metalness: 0.02, flatShading: true});
       const mesh = new THREE.Mesh(geo, mat);
       mesh.userData = {part: pt, baseColor: base};
