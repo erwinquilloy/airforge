@@ -51,7 +51,7 @@ function buildLiftSeg(c) {
   };
   const holeFns = st => {
     const h = [];
-    for (const sp of st.spars) h.push({key: "sp" + sp.id, fn: j => { const q = sp.line(ys[j]); return holeRing(q[0], q[1], sp.r, 24); }});
+    for (const sp of st.spars) h.push({key: "sp" + sp.id, axis: sp.axis, r: sp.r, fn: j => { const q = sp.line(ys[j]); return holeRing(q[0], q[1], sp.r, 24); }});
     if (st.hpIn) h.push({key: "hpIn", fn: j => { const q = cs.pin.line(ys[j]); return holeRing(q[0], q[1], cs.pin.r, 14); }});
     if (st.hpOut) h.push({key: "hpOut", fn: j => { const q = cs.pin.line(ys[j]); return holeRing(q[0], q[1], cs.pin.r, 14); }});
     if (st.pinIn) c.pinsIn.forEach((q, i) => h.push({key: "pi" + i, fn: () => holeRing(q[0], q[1], c.pinR, 14)}));
@@ -95,8 +95,17 @@ function buildLiftSeg(c) {
       faces.push({j, pts, holes, sign: inB ? 1 : -1});
     }
     const keysA = new Set(A.hk.map(h => h.key)), keysB = new Set(B.hk.map(h => h.key));
-    for (const h of A.hk) if (!keysB.has(h.key) && !claimed.has(h.key)) discs.push({j, ring: h.fn(j), sign: -1});
-    for (const h of B.hk) if (!keysA.has(h.key) && !claimed.has(h.key)) discs.push({j, ring: h.fn(j), sign: 1});
+    const gone = A.hk.filter(h => !keysB.has(h.key) && !claimed.has(h.key));
+    const born = B.hk.filter(h => !keysA.has(h.key) && !claimed.has(h.key));
+    for (const h of gone.slice()) {                                      // same bore, thinner tube: an annulus, not two discs
+      const mate = h.axis && born.find(q => q.axis === h.axis);
+      if (!mate) continue;
+      const wide = h.r >= mate.r ? h : mate, thin = h.r >= mate.r ? mate : h;
+      faces.push({j, pts: wide.fn(j), holes: [thin.fn(j)], sign: wide === h ? -1 : 1});
+      gone.splice(gone.indexOf(h), 1); born.splice(born.indexOf(mate), 1);
+    }
+    for (const h of gone) discs.push({j, ring: h.fn(j), sign: -1});
+    for (const h of born) discs.push({j, ring: h.fn(j), sign: 1});
   }
   return loftZoned(ys, zones, faces, discs, !!c.meta);
 }
@@ -231,6 +240,25 @@ function buildAircraft(A, opts = {}) {
   });
   const commit = sp => { committed.push({line: sp.line, r: sp.r, yEnd: sp.yEnd}); spars.push(sp); };
   const socketFor = od => TUBES.find(q => q[1] >= od) || TUBES[TUBES.length - 1];
+  /* Where the section runs out of depth for the main tube, a thinner one carries on outboard,
+     sliding into the end of the main tube — the way Titan and the Interceptor step their spars. */
+  const stepOut = (run, nm) => {
+    if (!p.sparStep) return;
+    let from = run, guard = 0;
+    while (from.yEnd < half * 0.86 && guard++ < 3) {
+      const inner = TUBES.filter(q => q[0] <= from.tube[1] - 0.1).pop();
+      if (!inner) break;
+      const r2 = inner[0] / 2 + clr, end2 = reachOf(from.line, r2, from.yEnd, half * 0.97);
+      if (end2 < from.yEnd + 45) break;
+      const overlapIn = Math.min(60, Math.max(25, 0.06 * half));
+      const next = {id: from.id + 200 + guard, tube: inner, yStart: from.yEnd, yEnd: end2, line: from.line, r: r2,
+        continuous: false, axis: from.axis, stepped: true, overlapIn, parent: from.tube};
+      commit(next);
+      L.note("Structure", nm + " steps down at " + fmtN(from.yEnd) + " mm: a " + tubeLabel(inner) + " carries on to "
+        + fmtN(end2) + " mm, sliding " + fmtN(overlapIn) + " mm inside the end of the " + tubeLabel(from.tube) + ". Glue that joint."); 
+      from = next;
+    }
+  };
   A.tubes.forEach((t, id) => {
     const r = t.tube[0] / 2 + clr, pos = t.pos, nm = id ? "Rear spar" : "Main spar";
     const w0 = W.wingAt(Math.min(half * 0.2, Math.max(2, W.blendEnd)));
@@ -277,7 +305,7 @@ function buildAircraft(A, opts = {}) {
     if (mode === "cont") {
       const short = contReach < half * 0.85
         ? " " + nm + " reaches " + fmtN(contReach) + " mm of the " + fmtN(half) + " mm half span; outboard of that the section is too thin for the tube." : "";
-      commit({id: id * 4, tube: t.tube, yStart: 0, yEnd: contReach, line: cont.line, r, continuous: true});
+      commit({id: id * 4, tube: t.tube, yStart: 0, yEnd: contReach, line: cont.line, r, continuous: true, axis: "a" + id + "_c"});
       L.note("Structure", nm + " is one continuous " + tubeLabel(t.tube) + " through the fuselage," + where + ", reaching " + fmtN(contReach) + " mm each side." + short);
       if (L.hasFuse) sparPorts.push({x: cont.x, z: W.dihZ(0) + cont.line(0)[1], d: t.tube[0], label: nm.toLowerCase()});
       return;
@@ -292,7 +320,7 @@ function buildAircraft(A, opts = {}) {
       const end = reachOf(line, r, y0, y1);
       if (end <= y0 + 20) return;
       if (crosses(line, r, end)) { warns.push(nm + ": no room for a tube in this panel clear of the other spar; move one of the spar positions."); return; }
-      const run = {id: id * 4 + ri + 1, tube: t.tube, yStart: y0, yEnd: end, line, r, continuous: false};
+      const run = {id: id * 4 + ri + 1, tube: t.tube, yStart: y0, yEnd: end, line, r, continuous: false, axis: "a" + id + "_" + ri};
       if (socketing && y0 < 1) {
         const sock = socketFor(t.tube[0]);
         const hwF = L.fuse.profile(Math.max(4, Math.min(line(0)[0], L.fuse.L - 4)))[0];
@@ -305,6 +333,7 @@ function buildAircraft(A, opts = {}) {
           + (inLine ? " The wing is flat and unswept here, so the two sockets can instead be one " + tubeLabel(sock) + " tube " + fmtN(2 * (hwF + overlap)) + " mm long straight through the fuselage." : ""));
       }
       commit(run);
+      stepOut(run, nm);
       if (L.hasFuse && y0 < 1) sparPorts.push({x: line(0)[0], z: W.dihZ(0) + line(0)[1], d: (run.socket || t.tube)[0], label: nm.toLowerCase()});
     });
     L.note("Structure", nm + ": one straight tube per side" + (p.sparLayout === "perside" ? "" : " (a continuous tube would reach only " + fmtN(contReach) + " mm)") + ".");
@@ -330,8 +359,8 @@ function buildAircraft(A, opts = {}) {
   });
   const sparXAt = y => spars.filter(sp => y >= sp.yStart - 1 && y <= sp.yEnd + 1).map(sp => [sp.line(y)[0], sp.r]);
   /* what to buy: a continuous tube spans both sides, otherwise one tube per side per run */
-  bom.sparRuns = spars.map(sp => ({tube: sp.tube, len: sp.yEnd - sp.yStart + (sp.telescope ? sp.overlap : 0) + (sp.continuous && !sp.telescope ? sp.yEnd : 0), count: sp.continuous && !sp.telescope ? 1 : 2, continuous: sp.continuous && !sp.telescope, telescope: !!sp.telescope, joiner: !!sp.joiner,
-    role: sp.joiner ? "Center joiner" : (sp.id < 4 ? "Main spar" : "Rear spar")
+  bom.sparRuns = spars.map(sp => ({tube: sp.tube, len: sp.yEnd - sp.yStart + (sp.telescope ? sp.overlap : 0) + (sp.stepped ? sp.overlapIn : 0) + (sp.continuous && !sp.telescope ? sp.yEnd : 0), count: sp.continuous && !sp.telescope ? 1 : 2, continuous: sp.continuous && !sp.telescope, telescope: !!sp.telescope, stepped: !!sp.stepped, joiner: !!sp.joiner,
+    role: sp.joiner ? "Center joiner" : sp.stepped ? (sp.id % 200 < 4 ? "Main" : "Rear") + " spar, outboard section" : (sp.id < 4 ? "Main spar" : "Rear spar")
       + (sp.telescope ? ", telescopes into the fuselage socket" : sp.continuous ? ", continuous" : W.cranked && sp.yStart > 1 ? ", outer panel" : W.cranked ? ", inner panel" : "")}));
   for (const sp of spars) if (sp.telescope)                           // the socket each wing tube slides into
     bom.sparRuns.push({tube: sp.socket, len: sp.sockLen, count: 2, socket: true,
