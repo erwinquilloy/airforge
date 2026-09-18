@@ -23,7 +23,7 @@ const RODS = [[2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [8, 0]];
 const tubeLabel = t => t[1] ? `${t[0]} × ${t[1]} mm tube` : `${t[0]} mm rod`;
 const tubeKey = t => t[1] ? `t${t[0]}x${t[1]}` : `r${t[0]}`;
 const SPAR_OPTIONS = [["auto", "Auto (sized for load)"]].concat(TUBES.map(t => [tubeKey(t), tubeLabel(t)]), RODS.slice(2).map(t => [tubeKey(t), tubeLabel(t)]));
-const tubeFromKey = k => { const m = /^t(d+)x(d+)$/.exec(k) || /^r(d+)$/.exec(k); return m ? [+m[1], m[2] ? +m[2] : 0] : null; };
+const tubeFromKey = k => { const m = /^t(\d+)x(\d+)$/.exec(k) || /^r(\d+)$/.exec(k); return m ? [+m[1], m[2] ? +m[2] : 0] : null; };
 /* parse "240, 480" into sorted positive numbers */
 const parseCuts = str => String(str || "").split(/[,;s]+/).map(Number).filter(v => isFinite(v) && v > 0).sort((a, b) => a - b);
 const CARBON_RHO = 1.55e-3, CARBON_ALLOW = 600 / 1.5;               // g/mm³, N/mm² incl. 1.5 safety factor

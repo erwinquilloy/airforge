@@ -543,10 +543,9 @@ function buildAircraft(A, opts = {}) {
         return P.up[1][1] - P.lo[1][1] >= 2 * pinR + 2 ? [[P.lo[1][0], (P.up[1][1] + P.lo[1][1]) / 2]] : [];
       };
       const pIn = pinAt(s0), pOut = pinAt(s1);
-      const rodHere = rodLine && s0 < rodLine.sEnd - 1 ? [{id: 9, line: rodLine.line, r: rodLine.r}] : [];
-      const rodBreak = rodHere.length && rodLine.sEnd < s1 ? rodLine.sEnd : null;
-      // a rod that stops inside the segment is modelled as a pocket to its end
-      const spRod = rodHere.length && rodBreak ? [] : rodHere;
+      // the bore runs from the root to wherever the rod still fits, ending as a pocket
+      const rodHere = rodLine && s0 < rodLine.sEnd - 1 ? [{id: 9, line: rodLine.line, r: rodLine.r, yStart: 0, yEnd: rodLine.sEnd}] : [];
+      const spRod = rodHere;
       const local = buildLiftSeg({s0, s1, step: quick ? 30 : 12, breaks: [], sectionAt: at, U: Up, minTE: p.minTE * 0.8, cs: tcs ? {...tcs, pin: tcs.pinR ? {line: tcs.line, r: tcs.pinR} : null} : null,
         bays: bayHere ? [tbay] : [], spars: spRod, pinsIn: pIn, pinsOut: pOut, pinR, pinDepth: dPin, meta: false});
       let csMesh = null;
