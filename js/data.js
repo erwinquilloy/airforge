@@ -54,6 +54,9 @@ const MOTORS = [
   ["m2208", "2208 · 1500 Kv", 1500, 0.100, 0.50, 40, 18, 4, 28, "x16_19"],
   ["m2212", "2212 · 1000 Kv", 1000, 0.120, 0.50, 56, 20, 4, 28, "x16_19"],
   ["m2216", "2216 · 880 Kv",   880, 0.105, 0.50, 70, 25, 4, 28, "x16_19"],
+  ["m2207", "2207 · 1750 Kv", 1750, 0.045, 1.10, 33, 45, 6, 28, "sq16"],
+  ["m2806", "2806.5 · 1300 Kv", 1300, 0.055, 0.90, 42, 45, 6, 32, "sq16"],
+  ["m2812", "2812 · 1115 Kv", 1115, 0.055, 1.00, 62, 45, 6, 34, "x16_19"],
   ["m2814", "2814 · 700 Kv",   700, 0.070, 0.90, 110, 35, 5, 35, "x19_25"],
   ["m2820", "2820 · 920 Kv",   920, 0.035, 1.20, 125, 45, 4, 35, "x19_25"],
   ["m3508", "3508 · 580 Kv",   580, 0.080, 0.60, 88, 30, 6, 41, "sq25"],
@@ -70,7 +73,7 @@ const SERVOS = {
 };
 const HINGE_PINS = {f175: {name: "1.75 mm filament", d: 1.75}, w12: {name: "1.2 mm steel wire", d: 1.2}, r2: {name: "2 mm carbon rod", d: 2}, tape: {name: "Tape hinge (no pin holes)", d: 0}};
 const MOUNT_OPTIONS = [["auto", "Typical for the motor class"]].concat(Object.entries(MOUNT_PATTERNS).map(([k, v]) => [k, v.name]));
-const PROPS = [[5, 3], [5, 4.5], [6, 4], [7, 4], [8, 4.5], [8, 6], [9, 4.5], [9, 6], [10, 5], [10, 7], [11, 5.5], [11, 7], [12, 6], [13, 6.5], [14, 7], [15, 5], [16, 5.5], [18, 6.1]];
+const PROPS = [[5, 3], [5, 4.5], [6, 4], [7, 4], [7, 6], [8, 4.5], [8, 6], [9, 4.5], [9, 6], [10, 5], [10, 7], [11, 5.5], [11, 7], [12, 6], [13, 6.5], [14, 7], [15, 5], [16, 5.5], [18, 6.1]];
 
 /* ---------------------------------------------------------------------------
    Parameter schema. Each field: id, label, unit, min, max, step, default,
@@ -321,6 +324,22 @@ const TEMPLATES = [
     p: {wingType: "tapered", tailType: "none", fuseType: "pod", motorLayout: "pusher", span: 1100, rootChord: 300, taper: 0.45, sweep: 28, dihedral: 0, washout: 3, podLen: 300, noseLen: 120, tipFins: true, tipFinH: 100, foilRoot: "naca23112", foilTip: "naca23110", noseMode: "replaceable", vtol: "none", cells: 4, capacity: 2200, motorId: "m2208", propD: 6, propP: 4, staticMargin: 7, battX: -60}},
   {id: "fsw", name: "Forward-swept twin wing", desc: "Fast forward-swept flying wing with twin tractors.",
     p: {wingType: "tapered", tailType: "none", fuseType: "pod", motorLayout: "twin", motorSpan: 0.26, span: 1100, rootChord: 260, taper: 0.55, sweep: -8, dihedral: 0, washout: 0.5, podLen: 280, noseLen: 110, tipFins: true, tipFinH: 90, foilRoot: "naca23112", foilTip: "naca23110", noseMode: "replaceable", vtol: "none", cells: 3, capacity: 3000, motorId: "m2204", propD: 5, propP: 4.5, staticMargin: 6, battX: -40}},
+  {id: "tornado", name: "Twin-motor speedster", desc: "Titan Tornado V2 class: 1 m twin tractor, full fuselage, conventional tail, 6S.",
+    p: {wingType: "tapered", tailType: "conv", fuseType: "full", motorLayout: "twin", motorSpan: 0.3, span: 1000, rootChord: 224, taper: 0.75, sweep: 4, dihedral: 2, washout: 1,
+      foilRoot: "naca2411", foilTip: "naca2410", foilTail: "naca0011", fuseW: 88, fuseH: 96, noseLen: 150, tailArm: 0.5, noseMode: "replaceable", noseStyle: "camera",
+      hatchBatt: true, intake: true, exhaust: true, servoType: "micro9", hingePin: "r2", stabSpar: "r3", tailBlisterMax: 9,
+      spar1Size: "t8x6", spar2Size: "t6x4", sparLayout: "joiner", joinerReach: 0.3, vtol: "none",
+      cells: 6, chem: "lipo", capacity: 3300, motorId: "m2812", propD: 7, propP: 6, staticMargin: 9, battX: -60}},
+  {id: "chupito", name: "Compact forward-swept wing", desc: "TBS Chupito class: 800 mm forward-swept wing, centre fin, pusher, swappable camera nose.",
+    p: {wingType: "tapered", tailType: "fin", vVol: 0.025, vAR: 1.4, fuseType: "pod", motorLayout: "pusher", span: 800, rootChord: 240, taper: 0.55, sweep: -6, dihedral: 0, washout: 1.5,
+      foilRoot: "naca23112", foilTip: "naca23110", podLen: 300, podD: 82, noseLen: 120, noseMode: "replaceable", noseStyle: "camera",
+      intake: true, exhaust: true, exhaustAng: -90, servoType: "slim", sparLayout: "joiner", vtol: "none",
+      cells: 6, capacity: 1500, motorId: "m2806", propD: 6, propP: 4, staticMargin: 6, battX: -20}},
+  {id: "eliminator", name: "Speed wing", desc: "StuntDouble Eliminator / Interceptor class: 1 m forward-swept twin with thin sections, built for speed.",
+    p: {wingType: "tapered", tailType: "none", fuseType: "pod", motorLayout: "twin", motorSpan: 0.26, span: 1000, rootChord: 250, taper: 0.55, sweep: -8, dihedral: 0, washout: 0.5,
+      foilRoot: "naca23112", foilTip: "naca23110", tipFins: true, tipFinH: 85, podLen: 300, podD: 78, noseLen: 110, noseMode: "replaceable", noseStyle: "camera",
+      servoType: "slim", sparLayout: "joiner", intake: true, exhaust: true, vtol: "none",
+      cells: 6, capacity: 2200, motorId: "m2806", propD: 5, propP: 4.5, staticMargin: 6, battX: -30}},
   {id: "plank", name: "Plank wing", desc: "Low-sweep plank with reflex airfoil, twin tractors and a center pod.",
     p: {wingType: "tapered", tailType: "none", fuseType: "pod", motorLayout: "twin", motorSpan: 0.35, span: 1300, rootChord: 260, taper: 0.8, sweep: 3, dihedral: 1, washout: 1, podLen: 320, noseLen: 120, tipFins: true, tipFinH: 90, foilRoot: "naca25112", foilTip: "naca25112", noseMode: "replaceable", vtol: "none", cells: 4, capacity: 3000, motorId: "m2204", propD: 5, propP: 3, staticMargin: 5, battX: -60}},
   {id: "delta", name: "Delta", desc: "High-sweep delta with center fin — fast, stiff, compact.",
