@@ -251,7 +251,7 @@ function buildSheet(A, B) {
   line(`${L.motors.length} × ${A.motor.name}, ${p.propD}×${p.propP}" props, ${MOUNT_PATTERNS[p.mountPattern === "auto" ? A.motor.mountId : p.mountPattern].name} mount`,
     `${p.cells}S ${fmt(p.capacity)} mAh ${CHEM[p.chem].name} (${fmt(A.pk.Wh, 1)} Wh, ~${fmt(A.battMass)} g); full throttle ${fmt(f.static1.Ib, 1)} A`);
   hr("Hardware");
-  for (const t of A.tubes) line(`${tubeLabel(t.tube)} spar: ${fmt(t.len)} mm (do not glue — slide through the bores)`);
+  for (const r of B.bom.sparRuns) line(`${r.count} × ${tubeLabel(r.tube)} — ${r.role.toLowerCase()}${r.continuous ? ", passes through the fuselage" : ", one per wing"}: ${fmt(r.len)} mm (do not glue — slide through the bores)`);
   for (const b of L.booms) line(`${tubeLabel(b.tube)} ${b.role} boom${b.mirrored ? " × 2" : ""}: ${fmt(Math.hypot(b.b[0] - b.a[0], b.b[2] - b.a[2]))} mm`);
   if (B.bom.pins.length) line(`${B.bom.pins.length} joiner pins, ${p.pinSize.replace("r", "")} mm rod × ${fmt(B.bom.pins[0] * 2)} mm (glue into one side only)`);
   if (B.bom.hingePin) line(`Hinge pin (${HINGE_PINS[p.hingePin].name}): ${fmt(B.bom.hingePin * 2)} mm total`);

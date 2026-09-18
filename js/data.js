@@ -178,6 +178,10 @@ const SCHEMA = [
   F("air", "print", "bedZ", "Printer height Z", "mm", 100, 700, 1, 256),
   // ---- spars
   F("air", "spars", "sparPos", "Main spar position (÷ chord)", "", 0.12, 0.45, 0.01, 0.26),
+  SEL("air", "spars", "sparLayout", "Spar layout", [["auto", "Automatic"], ["continuous", "One continuous tube through the fuselage"], ["joiner", "Spar per side + center joiner tube"], ["perside", "One tube per side only"]], "auto", null,
+    "A continuous tube has to be straight and square to the centerline, so sweep, taper and dihedral limit how far it reaches. The joiner layout gives each wing its own spar and adds a short straight tube through the fuselage that carries the root bending and lets the wings come off."),
+  F("air", "spars", "joinerPos", "Center joiner offset from the main spar (÷ chord)", "", -0.25, 0.25, 0.01, 0.12, p => p.sparLayout !== "perside" && p.sparLayout !== "continuous"),
+  F("air", "spars", "joinerReach", "Center joiner reach into each wing (÷ half span)", "", 0.1, 0.6, 0.01, 0.3, p => p.sparLayout !== "perside" && p.sparLayout !== "continuous"),
   SEL("air", "spars", "spar1Size", "Main spar", SPAR_OPTIONS, "auto"),
   F("air", "spars", "spar2Pos", "Rear spar position (0 = none)", "", 0, 0.75, 0.01, 0),
   SEL("air", "spars", "spar2Size", "Rear spar", SPAR_OPTIONS, "auto", p => p.spar2Pos > 0),

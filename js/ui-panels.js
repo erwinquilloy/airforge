@@ -62,12 +62,12 @@ const Panels = {
     </dl></section>
     <section class="sec"><h2>Weight breakdown</h2><div class="wbars">${rows.map(r => `<div class="wbar"><span>${esc(r.name)}</span><div class="track"><div class="fill" style="width:${(r.mass / maxM * 100).toFixed(1)}%"></div></div><b>${fmt(r.mass)} g</b></div>`).join("")}</div></section>
     <section class="sec"><h2>Structure</h2><dl class="kv">
-      ${A.tubes.map((t, i) => `<dt>${i ? "Rear" : "Main"} spar</dt><dd>${tubeLabel(t.tube)}, ${fmt(t.len)} mm</dd>`).join("")}
+      ${B.bom.sparRuns.map(r => `<dt>${r.role}</dt><dd>${tubeLabel(r.tube)}, ${r.count} × ${fmt(r.len)} mm</dd>`).join("")}
       <dt>Root moment at ${S.p.loadFactor} g</dt><dd>${fmt(A.M_root / 1000, 1)} N·m</dd>
       ${A.tubes.map((t, i) => `<dt>${i ? "Rear" : "Main"} spar stress</dt><dd>${fmt(t.stress)} / ${fmt(CARBON_ALLOW)} MPa</dd>`).join("")}
     </dl></section>
     <section class="sec"><h2>Hardware to buy</h2><dl class="kv">
-      ${A.tubes.map((t, i) => `<dt>${tubeLabel(t.tube)}</dt><dd>${fmt(t.len)} mm</dd>`).join("")}
+      ${B.bom.sparRuns.map(r => `<dt>${tubeLabel(r.tube)} — ${r.role.toLowerCase()}${r.continuous ? " through the fuselage" : ", one per side"}</dt><dd>${r.count} × ${fmt(r.len)} mm</dd>`).join("")}
       ${A.L.booms.map(b => `<dt>${tubeLabel(b.tube)} ${b.role === "vtol" ? "VTOL" : "tail"} boom${b.mirrored ? " × 2" : ""}</dt><dd>${fmt(Math.hypot(b.b[0] - b.a[0], b.b[2] - b.a[2]))} mm</dd>`).join("")}
       ${pins ? `<dt>Joiner pins (${S.p.pinSize.replace("r", "")} mm rod)</dt><dd>${pins} × ${fmt(bom.pins[0] * 2)} mm</dd>` : ""}
       ${bom.hingePin ? `<dt>Hinge pin (${HINGE_PINS[S.p.hingePin].name})</dt><dd>${fmt(bom.hingePin * 2)} mm total</dd>` : ""}

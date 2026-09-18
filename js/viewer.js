@@ -155,9 +155,10 @@ const Viewer = (() => {
       m.renderOrder = 2; overlay.add(m);
     };
     const carbon = lineMat("--carbon", 0.85);
-    for (const sp of b.spars) for (const side of [1, -1]) {
-      const pt = y => { const [x, z] = sp.line(y); return [x, side * y, W.dihZ(y) + z]; };
-      rod(pt(sp.yStart), pt(sp.yEnd), sp.tube[0] / 2, carbon);
+    for (const sp of b.spars) {
+      const pt = (y, side) => { const [x, z] = sp.line(y); return [x, side * y, W.dihZ(y) + z]; };
+      if (sp.continuous) rod(pt(sp.yEnd, -1), pt(sp.yEnd, 1), sp.tube[0] / 2, carbon);   // one rod across both wings
+      else for (const side of [1, -1]) rod(pt(sp.yStart, side), pt(sp.yEnd, side), sp.tube[0] / 2, carbon);
     }
     for (const bm of L.booms.filter(q => q.role === "tail")) for (const side of bm.mirrored ? [1, -1] : [1]) rod([bm.a[0], side * bm.a[1], bm.a[2]], [bm.b[0], side * bm.b[1], bm.b[2]], bm.tube[0] / 2, carbon);
     if (b.vtolBoom) {

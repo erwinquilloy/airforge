@@ -30,6 +30,7 @@ Opening `index.html` directly from disk also works.
 
 **Printable parts.**
 - Wings and tails split at automatic or user-placed cuts, with spar bores sized to the chosen carbon tube or rod, and blind joiner-pin pockets at every cut. Cranked wings always split at the kink and carry one straight spar run per panel
+- Spar layout: one continuous tube through the fuselage (straight and square to the centerline, so sweep, taper and dihedral limit its reach), or a spar per side plus a short center joiner tube that carries the root bending and lets the wings come off. Bores may end mid-segment as blind pockets, and the parts list states what to buy
 - Separate ailerons, elevons, elevators and rudders with a rounded pinned hinge, pin pockets in the wing and printed control horns
 - Servo pockets with glue-in servo frames and screw-on covers (M3 heat-set inserts); DS041MG-class, 9 g micro, slim or custom servos. Servo position, pocket offset and horn position, side and arm length are adjustable, and servos and horns can be dragged in the 3D view
 - Hollow fuselage shells with joiner sleeves, a replaceable FPV nose with camera cradle (spigot or 4 × M3 insert ring), battery and avionics hatches cut from the shell (front tongue plus magnet or screw latch), a swappable streamlined FPV canopy (blank, camera or GPS) over an avionics bay with a glue-in FC shelf, and an underslung pod on insert bosses

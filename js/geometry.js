@@ -18,6 +18,7 @@ function buildLiftSeg(c) {
   const hpInOK = !!(cs && cs.pin && cs.a - cs.depth > c.s0 + 0.2), hpOutOK = !!(cs && cs.pin && cs.b + cs.depth < c.s1 - 0.2);
   if (cs) { add(cs.a); add(cs.b); if (hpInOK) add(cs.a - cs.depth); if (hpOutOK) add(cs.b + cs.depth); }
   for (const b of c.bays) { add(b.a); add(b.b); }
+  for (const sp of c.spars) { add(sp.yStart); add(sp.yEnd); }           // a bore that stops mid-segment becomes a pocket
   const dPin = Math.min(c.pinDepth, (c.s1 - c.s0) / 2 - 2);
   if (c.pinsIn.length) add(c.s0 + dPin);
   if (c.pinsOut.length) add(c.s1 - dPin);
@@ -27,11 +28,11 @@ function buildLiftSeg(c) {
 
   const stateOf = j => {
     const m = (ys[j] + ys[j + 1]) / 2;
-    return {cs: !!cs && m > cs.a && m < cs.b, bays: c.bays.filter(b => m > b.a && m < b.b),
+    return {cs: !!cs && m > cs.a && m < cs.b, bays: c.bays.filter(b => m > b.a && m < b.b), spars: c.spars.filter(sp => m > sp.yStart - 1e-6 && m < sp.yEnd + 1e-6),
       hpIn: hpInOK && m > cs.a - cs.depth && m < cs.a, hpOut: hpOutOK && m > cs.b && m < cs.b + cs.depth,
       pinIn: c.pinsIn.length > 0 && m < c.s0 + dPin, pinOut: c.pinsOut.length > 0 && m > c.s1 - dPin};
   };
-  const sig = st => [st.cs, st.bays.map(b => b.id).join("."), st.hpIn, st.hpOut, st.pinIn, st.pinOut].join("|");
+  const sig = st => [st.cs, st.bays.map(b => b.id).join("."), st.spars.map(sp => sp.id).join("."), st.hpIn, st.hpOut, st.pinIn, st.pinOut].join("|");
   const outerOf = st => j => {
     const {lo, up} = P[j], out = [], idx = [], lastLo = st.cs ? cs.iH : nU - 1;
     for (let i = 0; i <= lastLo;) {
@@ -50,7 +51,7 @@ function buildLiftSeg(c) {
   };
   const holeFns = st => {
     const h = [];
-    for (const sp of c.spars) h.push({key: "sp" + sp.id, fn: j => { const q = sp.line(ys[j]); return holeRing(q[0], q[1], sp.r, 24); }});
+    for (const sp of st.spars) h.push({key: "sp" + sp.id, fn: j => { const q = sp.line(ys[j]); return holeRing(q[0], q[1], sp.r, 24); }});
     if (st.hpIn) h.push({key: "hpIn", fn: j => { const q = cs.pin.line(ys[j]); return holeRing(q[0], q[1], cs.pin.r, 14); }});
     if (st.hpOut) h.push({key: "hpOut", fn: j => { const q = cs.pin.line(ys[j]); return holeRing(q[0], q[1], cs.pin.r, 14); }});
     if (st.pinIn) c.pinsIn.forEach((q, i) => h.push({key: "pi" + i, fn: () => holeRing(q[0], q[1], c.pinR, 14)}));
@@ -194,34 +195,70 @@ function buildAircraft(A, opts = {}) {
     const P = foilPts(w, [0, u], p.minTE);
     return [P.up[1][1], P.lo[1][1], P.lo[1][0]];
   };
-  /* One straight spar run per wing panel: a cranked wing needs its own tube outboard of the kink. */
+  /* Spar runs. A continuous tube has to be straight and square to the centerline to pass through
+     both wings, so its bore is held at constant x and constant world z while the sections drift
+     around it. One tube per side may instead follow each panel's own sweep and dihedral. */
   const kinkSeg = W.cranked ? bounds.findIndex(v => Math.abs(v - W.yk) < 12) : -1;
   const spars = [];
+  const fitsAt = (y, lx, lzCanon, r) => {
+    const w = W.wingAt(y), u = (lx - w.x) / w.c;
+    if (u < 0.05 || u > 0.9) return false;
+    const [up, lo] = skin(w, u);
+    return up - r - 1.2 >= lzCanon && lo + r + 1.2 <= lzCanon;
+  };
+  const reachOf = (line, r, y0, y1) => {                              // furthest y the bore still fits inside the skin
+    let y = y0;
+    for (let q = y0; q <= y1; q += 4) { const pt = line(q); if (!fitsAt(Math.min(q, y1 - 0.001), pt[0], pt[1], r)) break; y = q; }
+    return y;
+  };
   A.tubes.forEach((t, id) => {
-    const r = t.tube[0] / 2 + clr, pos = t.pos;
-    const runs = kinkSeg > 0 ? [[0, kinkSeg], [kinkSeg, bounds.length - 1]] : [[0, bounds.length - 1]];
-    runs.forEach(([segFrom, segMax], ri) => {
-      const y0 = bounds[segFrom], y1 = bounds[segMax];
+    const r = t.tube[0] / 2 + clr, pos = t.pos, nm = id ? "Rear spar" : "Main spar";
+    const w0 = W.wingAt(Math.min(half * 0.2, Math.max(2, W.blendEnd))), sk0 = skin(w0, pos);
+    const zWorld = W.dihZ(w0.y) + (sk0[0] + sk0[1]) / 2, x0 = sk0[2];   // level line through the root mid-thickness
+    const straight = y => [x0, zWorld - W.dihZ(y)];                     // constant x and world z; canonical z drifts
+    const contReach = reachOf(straight, r, 0, half * 0.97);
+    const wantCont = p.sparLayout === "continuous" || (p.sparLayout === "auto" && contReach >= half * 0.75);
+    if (wantCont && contReach > half * 0.15) {
+      spars.push({id: id * 4, tube: t.tube, yStart: 0, yEnd: contReach, line: straight, r, continuous: true});
+      if (contReach < half * 0.85) warns.push(nm + ": a continuous tube stays inside the skin only to " + fmtN(contReach) + " mm of " + fmtN(half) + " mm. Reduce dihedral or sweep, move the dihedral outboard with a cranked wing, or use the joiner layout.");
+      L.note("Structure", nm + " is one continuous " + tubeLabel(t.tube) + " through the fuselage, square to the centerline, reaching " + fmtN(contReach) + " mm each side.");
+      return;
+    }
+    if (p.sparLayout === "continuous") warns.push(nm + ": a continuous tube cannot stay inside the skin with this sweep, taper and dihedral. Use the joiner layout, or reduce sweep and dihedral.");
+    const panels = W.cranked && W.yk > 15 && W.yk < half - 15 ? [[0, W.yk], [W.yk, half * 0.97]] : [[0, half * 0.97]];
+    panels.forEach(([y0, y1], ri) => {
       const yA = Math.max(y0 + 1, Math.min(y0 + (y1 - y0) * 0.1, W.blendEnd)), yB = y1 - (y1 - y0) * 0.1;
-      const pt = y => { const w = W.wingAt(y), [up, lo, x] = skin(w, pos); return [x, (up + lo) / 2]; };
+      const pt = y => { const w = W.wingAt(y), sk = skin(w, pos); return [sk[2], (sk[0] + sk[1]) / 2]; };
       const PA = pt(yA), PB = pt(yB);
       const line = y => { const u = (y - yA) / (yB - yA); return [lerp(PA[0], PB[0], u), lerp(PA[1], PB[1], u)]; };
-      const fits = y => {
-        const w = W.wingAt(y), [lx, lz] = line(y), u = (lx - w.x) / w.c;
-        if (u < 0.05 || u > 0.9) return false;
-        const [up, lo] = skin(w, u);
-        return up - r - 1.2 >= lz && lo + r + 1.2 <= lz;
-      };
-      let segs = segFrom;
-      for (let i = segFrom + 1; i <= segMax; i++) {
-        let ok = true;
-        for (let k = 0; k <= 10; k++) if (!fits(lerp(bounds[i - 1], bounds[i], k / 10) * 0.999 + 0.001)) ok = false;
-        if (ok) segs = i; else break;
-      }
-      if (segs > segFrom) spars.push({id: id * 4 + ri, tube: t.tube, segFrom, segs, yStart: bounds[segFrom], yEnd: bounds[segs], line, r});
+      const end = reachOf(line, r, y0, y1);
+      if (end > y0 + 20) spars.push({id: id * 4 + ri + 1, tube: t.tube, yStart: y0, yEnd: end, line, r, continuous: false});
     });
+    L.note("Structure", nm + ": one straight tube per side" + (p.sparLayout === "perside" ? "" : " (a continuous tube would reach only " + fmtN(contReach) + " mm)") + ".");
+    /* center joiner: a short straight tube square to the centerline that carries the root bending
+       across the fuselage and lets the wings come off, as on printed twin-spar airframes */
+    if (id === 0 && p.sparLayout !== "perside") {
+      /* try the offset as given, then mirrored: on a swept wing only one side of the spar is clear */
+      let best = null;
+      for (const off of [p.joinerPos, -p.joinerPos]) {
+        const jPos = Math.min(0.8, Math.max(0.06, pos + off));
+        const jw = W.wingAt(Math.min(half * 0.2, Math.max(2, W.blendEnd))), jsk = skin(jw, jPos);
+        const jx = jsk[2], jz = W.dihZ(jw.y) + (jsk[0] + jsk[1]) / 2;
+        const jline = y => [jx, jz - W.dihZ(y)];
+        const jEnd = Math.min(reachOf(jline, r, 0, half * p.joinerReach), half * p.joinerReach);
+        const clear = spars.every(sp => { for (let q = 0; q <= jEnd; q += 10) if (q <= sp.yEnd && Math.abs(sp.line(q)[0] - jx) < sp.r + r + 2.5) return false; return true; });
+        if (clear && jEnd > half * 0.12 && (!best || jEnd > best.jEnd)) best = {jPos, jline, jEnd};
+      }
+      if (best) {
+        spars.push({id: 99, tube: t.tube, yStart: 0, yEnd: best.jEnd, line: best.jline, r, continuous: true, joiner: true});
+        L.note("Structure", "Center joiner: one " + tubeLabel(t.tube) + " through the fuselage at " + fmtN(best.jPos * 100) + "% chord, " + fmtN(best.jEnd) + " mm into each wing, carrying the root bending between the panels.");
+      } else warns.push("No room for a center joiner tube clear of the main spar; change the joiner offset, or bolt or glue the wing panels to the fuselage instead.");
+    }
   });
   const sparXAt = y => spars.filter(sp => y >= sp.yStart - 1 && y <= sp.yEnd + 1).map(sp => [sp.line(y)[0], sp.r]);
+  /* what to buy: a continuous tube spans both sides, otherwise one tube per side per run */
+  bom.sparRuns = spars.map(sp => ({tube: sp.tube, len: sp.continuous ? 2 * sp.yEnd : sp.yEnd - sp.yStart, count: sp.continuous ? 1 : 2, continuous: sp.continuous, joiner: !!sp.joiner,
+    role: sp.joiner ? "Center joiner" : (sp.id < 4 ? "Main spar" : "Rear spar") + (sp.continuous ? ", continuous" : W.cranked && sp.yStart > 1 ? ", outer panel" : W.cranked ? ", inner panel" : "")}));
 
   /* control surfaces (ailerons / elevons) */
   let wcs = null;
@@ -332,7 +369,7 @@ function buildAircraft(A, opts = {}) {
     const segBays = bays.filter(b => b.a >= s0 - 0.1 && b.b <= s1 + 0.1);
     const pinsIn = pinsAt(s0), pinsOut = s1 < half - 1 ? pinsAt(s1) : [];
     const local = buildLiftSeg({s0, s1, step, breaks: W.breaks, sectionAt: W.wingAt, U, minTE: p.minTE, cs: wcs ? {...wcs, pin: wcs.pinR ? {line: wcs.line, r: wcs.pinR} : null} : null,
-      bays: segBays, spars: spars.filter(sp => si >= sp.segFrom && si < sp.segs), pinsIn, pinsOut, pinR, pinDepth: p.pinDepth, meta: true});
+      bays: segBays, spars: spars.filter(sp => sp.yStart < s1 - 0.5 && sp.yEnd > s0 + 0.5), pinsIn, pinsOut, pinR, pinDepth: p.pinDepth, meta: true});
     const extras = [];
     // control surface piece within this segment
     if (wcs && wcs.b > s0 + 1 && wcs.a < s1 - 1) {
@@ -391,7 +428,7 @@ function buildAircraft(A, opts = {}) {
     for (const side of [1, -1]) {
       const map = toWorld(side), sfx = side > 0 ? "R" : "L", segSfx = nSeg > 1 ? "_" + (si + 1) : "";
       const nPins = pinsIn.length + pinsOut.length;
-      const info = [...spars.filter(sp => si >= sp.segFrom && si < sp.segs).map(sp => `${tubeLabel(sp.tube)} bore`), nPins ? `${nPins} × ${pin[0]} mm pin pockets` : "", segBays.length ? segBays.map(b => b.kind === "servo" ? "servo pocket" : "hardpoint pocket").join(", ") : ""].filter(Boolean).join(", ");
+      const info = [...spars.filter(sp => sp.yStart < s1 - 0.5 && sp.yEnd > s0 + 0.5).map(sp => `${tubeLabel(sp.tube)} ${sp.joiner ? "joiner" : "spar"} bore`), nPins ? `${nPins} × ${pin[0]} mm pin pockets` : "", segBays.length ? segBays.map(b => b.kind === "servo" ? "servo pocket" : "hardpoint pocket").join(", ") : ""].filter(Boolean).join(", ");
       part(`wing_${sfx}${segSfx}`, "wing", local.mapped(map, side < 0), standRoot(side), {seg: si, cp: true, side, info,
         settings: "Stand on the root face. 1–2 walls, 0% infill, 3 bottom layers, no supports. Add 2 perimeters around bores with a slicer modifier."});
       if (nPins) bom.pins.push(...Array(nPins).fill(p.pinDepth * 2));
