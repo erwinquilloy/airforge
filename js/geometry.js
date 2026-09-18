@@ -156,6 +156,10 @@ function buildFuseSeg(F, x0, x1, t, openings, step, n) {
       else if (start !== null) { runs.push([start, (k - 1 + n) % n]); start = null; }
     }
     if (start !== null) runs.push([start, (firstKept - 1 + n) % n]);
+    for (const [a, b] of runs.slice()) if (a === b) {                  // one index of skin between two openings
+      runs.splice(runs.indexOf(runs.find(q => q[0] === a && q[1] === b)), 1);
+      open.add(a);
+    }
     const seq = (a, b) => { const r = []; for (let k = a; ; k = (k + 1) % n) { r.push(k); if (k === b) break; } return r; };
     z.outers = runs.map(([a, b]) => j => { const ks = seq(a, b); return [...ks.map(k => rings[j].o[k]), ...ks.slice().reverse().map(k => rings[j].i[k])]; });
     z.holes = [];
@@ -219,20 +223,66 @@ function buildAircraft(A, opts = {}) {
     for (let q = y0; q <= y1; q += 4) { const pt = line(q); if (!fitsAt(Math.min(q, y1 - 0.001), pt[0], pt[1], r)) break; y = q; }
     return y;
   };
+  const committed = [], sparPorts = [];                               // bores already fixed, and where one crosses the shell
+  const crosses = (line, r, yEnd) => committed.some(q => {            // two bores may never meet inside the skin
+    for (let y = 0, yTop = Math.min(q.yEnd, yEnd); y <= yTop; y += 8)
+      if (Math.abs(q.line(y)[0] - line(y)[0]) < q.r + r + 3) return true;
+    return false;
+  });
+  const commit = sp => { committed.push({line: sp.line, r: sp.r, yEnd: sp.yEnd}); spars.push(sp); };
+  const socketFor = od => TUBES.find(q => q[1] >= od) || TUBES[TUBES.length - 1];
   A.tubes.forEach((t, id) => {
     const r = t.tube[0] / 2 + clr, pos = t.pos, nm = id ? "Rear spar" : "Main spar";
-    const w0 = W.wingAt(Math.min(half * 0.2, Math.max(2, W.blendEnd))), sk0 = skin(w0, pos);
-    const zWorld = W.dihZ(w0.y) + (sk0[0] + sk0[1]) / 2, x0 = sk0[2];   // level line through the root mid-thickness
-    const straight = y => [x0, zWorld - W.dihZ(y)];                     // constant x and world z; canonical z drifts
-    const contReach = reachOf(straight, r, 0, half * 0.97);
-    const wantCont = p.sparLayout === "continuous" || (p.sparLayout === "auto" && contReach >= half * 0.75);
-    if (wantCont && contReach > half * 0.15) {
-      spars.push({id: id * 4, tube: t.tube, yStart: 0, yEnd: contReach, line: straight, r, continuous: true});
-      if (contReach < half * 0.85) warns.push(nm + ": a continuous tube stays inside the skin only to " + fmtN(contReach) + " mm of " + fmtN(half) + " mm. Reduce dihedral or sweep, move the dihedral outboard with a cranked wing, or use the joiner layout.");
-      L.note("Structure", nm + " is one continuous " + tubeLabel(t.tube) + " through the fuselage, square to the centerline, reaching " + fmtN(contReach) + " mm each side.");
+    const w0 = W.wingAt(Math.min(half * 0.2, Math.max(2, W.blendEnd)));
+    const levelAt = u => {                                             // level tube through the root section at u
+      const sk = skin(w0, u), zW = W.dihZ(w0.y) + (sk[0] + sk[1]) / 2, x = sk[2];
+      return {u, x, line: y => [x, zW - W.dihZ(y)]};                    // constant x and world z; canonical z drifts
+    };
+    /* One tube through both wings has to be straight and square to the centerline, so it cannot
+       follow sweep: at the chord fraction asked for it may leave the planform a short way out.
+       Slide it along the chord to where it reaches furthest, keeping the asked-for position
+       unless moving really buys span. On a delta this puts it just ahead of the trailing edge. */
+    const gap = Math.max(3, 0.09 * W.wingAt(0).c);                     // keep the two runs a useful distance apart
+    const clear = c => !crosses(c.line, r + gap - 3, half * 0.97);
+    const asked = levelAt(pos);
+    let cont = Object.assign(asked, {reach: clear(asked) ? reachOf(asked.line, r, 0, half * 0.97) : 0});
+    if (cont.reach < half * 0.75) {                                    // the asked-for line runs out of wing early
+      const all = [];
+      for (let u = Math.max(0.06, pos - 0.3); u <= Math.min(0.9, pos + 0.3); u += 0.02) {
+        const c = levelAt(u);
+        if (clear(c)) all.push(Object.assign(c, {reach: reachOf(c.line, r, 0, half * 0.97)}));
+      }
+      /* Asked for one tube through both wings: slide to wherever a straight tube reaches
+         furthest — on a delta that is just ahead of the straight trailing edge, and the tips
+         are simply too thin for any tube. On automatic, only move for a full-span station. */
+      const target = p.sparLayout === "continuous"
+        ? Math.max(0, ...all.map(c => c.reach)) - 0.02 * half : half * 0.9;
+      const good = all.filter(c => c.reach >= target && c.reach > 0).sort((a, b) => Math.abs(a.u - pos) - Math.abs(b.u - pos));
+      if (good.length) cont = good[0];
+    }
+    const contReach = cont.reach;
+    /* A straight bore can be flown three ways: one tube all the way through, a tube per wing
+       telescoping into a socket glued in the fuselage (Titan / Interceptor), or — when it cannot
+       reach — a tube per side following the sweep with a separate joiner across the middle. */
+    /* With a fuselage to glue sockets into, each wing carries its own tube and plugs in —
+       that works at any sweep and dihedral, which one tube through the middle cannot.
+       A wing with no fuselage has nothing to socket into, so it takes a tube all the way. */
+    const socketing = L.hasFuse && (p.sparLayout === "telescope" || p.sparLayout === "auto");
+    const mode = p.sparLayout === "continuous" ? (contReach > half * 0.15 ? "cont" : "perside")
+      : socketing ? "perside"
+      : p.sparLayout === "perside" || p.sparLayout === "joiner" ? "perside"
+      : contReach >= half * 0.75 ? "cont" : "perside";
+    const where = " square to the centerline at " + fmtN(cont.u * 100) + "% of the root chord"
+      + (Math.abs(cont.u - pos) > 0.03 ? " (asked for " + fmtN(pos * 100) + "%, but a straight tube cannot follow the sweep)" : "");
+    if (mode === "cont") {
+      const short = contReach < half * 0.85
+        ? " " + nm + " reaches " + fmtN(contReach) + " mm of the " + fmtN(half) + " mm half span; outboard of that the section is too thin for the tube." : "";
+      commit({id: id * 4, tube: t.tube, yStart: 0, yEnd: contReach, line: cont.line, r, continuous: true});
+      L.note("Structure", nm + " is one continuous " + tubeLabel(t.tube) + " through the fuselage," + where + ", reaching " + fmtN(contReach) + " mm each side." + short);
+      if (L.hasFuse) sparPorts.push({x: cont.x, z: W.dihZ(0) + cont.line(0)[1], d: t.tube[0], label: nm.toLowerCase()});
       return;
     }
-    if (p.sparLayout === "continuous") warns.push(nm + ": a continuous tube cannot stay inside the skin with this sweep, taper and dihedral. Use the joiner layout, or reduce sweep and dihedral.");
+    if (p.sparLayout === "continuous" || p.sparLayout === "telescope") warns.push(nm + ": a straight tube square to the centerline leaves the skin after " + fmtN(contReach) + " mm, so it cannot be " + (p.sparLayout === "telescope" ? "telescoped into a fuselage socket" : "run through in one piece") + ". Reduce dihedral and sweep, or use the joiner layout.");
     const panels = W.cranked && W.yk > 15 && W.yk < half - 15 ? [[0, W.yk], [W.yk, half * 0.97]] : [[0, half * 0.97]];
     panels.forEach(([y0, y1], ri) => {
       const yA = Math.max(y0 + 1, Math.min(y0 + (y1 - y0) * 0.1, W.blendEnd)), yB = y1 - (y1 - y0) * 0.1;
@@ -240,12 +290,27 @@ function buildAircraft(A, opts = {}) {
       const PA = pt(yA), PB = pt(yB);
       const line = y => { const u = (y - yA) / (yB - yA); return [lerp(PA[0], PB[0], u), lerp(PA[1], PB[1], u)]; };
       const end = reachOf(line, r, y0, y1);
-      if (end > y0 + 20) spars.push({id: id * 4 + ri + 1, tube: t.tube, yStart: y0, yEnd: end, line, r, continuous: false});
+      if (end <= y0 + 20) return;
+      if (crosses(line, r, end)) { warns.push(nm + ": no room for a tube in this panel clear of the other spar; move one of the spar positions."); return; }
+      const run = {id: id * 4 + ri + 1, tube: t.tube, yStart: y0, yEnd: end, line, r, continuous: false};
+      if (socketing && y0 < 1) {
+        const sock = socketFor(t.tube[0]);
+        const hwF = L.fuse.profile(Math.max(4, Math.min(line(0)[0], L.fuse.L - 4)))[0];
+        const overlap = Math.min(70, Math.max(25, 0.07 * half));
+        Object.assign(run, {telescope: true, socket: sock, overlap, sockLen: hwF + overlap + 6});
+        const dx = (line(40)[0] - line(0)[0]) / 40, dz = (line(40)[1] - line(0)[1] + W.dihZ(40) - W.dihZ(0)) / 40;
+        const inLine = Math.abs(dx) < 0.02 && Math.abs(dz) < 0.02;      // both sides on one axis: one tube can do both
+        L.note("Structure", nm + ": one " + tubeLabel(t.tube) + " per wing, " + fmtN(end - y0 + overlap) + " mm long, sliding "
+          + fmtN(overlap) + " mm into a " + tubeLabel(sock) + " socket glued into that side of the fuselage, so the wings pull off. Sand the socket or the tube for a snug sliding fit."
+          + (inLine ? " The wing is flat and unswept here, so the two sockets can instead be one " + tubeLabel(sock) + " tube " + fmtN(2 * (hwF + overlap)) + " mm long straight through the fuselage." : ""));
+      }
+      commit(run);
+      if (L.hasFuse && y0 < 1) sparPorts.push({x: line(0)[0], z: W.dihZ(0) + line(0)[1], d: (run.socket || t.tube)[0], label: nm.toLowerCase()});
     });
     L.note("Structure", nm + ": one straight tube per side" + (p.sparLayout === "perside" ? "" : " (a continuous tube would reach only " + fmtN(contReach) + " mm)") + ".");
     /* center joiner: a short straight tube square to the centerline that carries the root bending
        across the fuselage and lets the wings come off, as on printed twin-spar airframes */
-    if (id === 0 && p.sparLayout !== "perside") {
+    if (id === 0 && p.sparLayout !== "perside" && !(socketing && spars.some(sp => sp.telescope))) {
       /* try the offset as given, then mirrored: on a swept wing only one side of the spar is clear */
       let best = null;
       for (const off of [p.joinerPos, -p.joinerPos]) {
@@ -254,19 +319,23 @@ function buildAircraft(A, opts = {}) {
         const jx = jsk[2], jz = W.dihZ(jw.y) + (jsk[0] + jsk[1]) / 2;
         const jline = y => [jx, jz - W.dihZ(y)];
         const jEnd = Math.min(reachOf(jline, r, 0, half * p.joinerReach), half * p.joinerReach);
-        const clear = spars.every(sp => { for (let q = 0; q <= jEnd; q += 10) if (q <= sp.yEnd && Math.abs(sp.line(q)[0] - jx) < sp.r + r + 2.5) return false; return true; });
-        if (clear && jEnd > half * 0.12 && (!best || jEnd > best.jEnd)) best = {jPos, jline, jEnd};
+        if (!crosses(jline, r, jEnd) && jEnd > half * 0.12 && (!best || jEnd > best.jEnd)) best = {jPos, jline, jEnd};
       }
       if (best) {
-        spars.push({id: 99, tube: t.tube, yStart: 0, yEnd: best.jEnd, line: best.jline, r, continuous: true, joiner: true});
+        commit({id: 99, tube: t.tube, yStart: 0, yEnd: best.jEnd, line: best.jline, r, continuous: true, joiner: true});
+        if (L.hasFuse) sparPorts.push({x: best.jline(0)[0], z: W.dihZ(0) + best.jline(0)[1], d: t.tube[0], label: "center joiner"});
         L.note("Structure", "Center joiner: one " + tubeLabel(t.tube) + " through the fuselage at " + fmtN(best.jPos * 100) + "% chord, " + fmtN(best.jEnd) + " mm into each wing, carrying the root bending between the panels.");
       } else warns.push("No room for a center joiner tube clear of the main spar; change the joiner offset, or bolt or glue the wing panels to the fuselage instead.");
     }
   });
   const sparXAt = y => spars.filter(sp => y >= sp.yStart - 1 && y <= sp.yEnd + 1).map(sp => [sp.line(y)[0], sp.r]);
   /* what to buy: a continuous tube spans both sides, otherwise one tube per side per run */
-  bom.sparRuns = spars.map(sp => ({tube: sp.tube, len: sp.continuous ? 2 * sp.yEnd : sp.yEnd - sp.yStart, count: sp.continuous ? 1 : 2, continuous: sp.continuous, joiner: !!sp.joiner,
-    role: sp.joiner ? "Center joiner" : (sp.id < 4 ? "Main spar" : "Rear spar") + (sp.continuous ? ", continuous" : W.cranked && sp.yStart > 1 ? ", outer panel" : W.cranked ? ", inner panel" : "")}));
+  bom.sparRuns = spars.map(sp => ({tube: sp.tube, len: sp.yEnd - sp.yStart + (sp.telescope ? sp.overlap : 0) + (sp.continuous && !sp.telescope ? sp.yEnd : 0), count: sp.continuous && !sp.telescope ? 1 : 2, continuous: sp.continuous && !sp.telescope, telescope: !!sp.telescope, joiner: !!sp.joiner,
+    role: sp.joiner ? "Center joiner" : (sp.id < 4 ? "Main spar" : "Rear spar")
+      + (sp.telescope ? ", telescopes into the fuselage socket" : sp.continuous ? ", continuous" : W.cranked && sp.yStart > 1 ? ", outer panel" : W.cranked ? ", inner panel" : "")}));
+  for (const sp of spars) if (sp.telescope)                           // the socket each wing tube slides into
+    bom.sparRuns.push({tube: sp.socket, len: sp.sockLen, count: 2, socket: true,
+      role: (sp.id < 4 ? "Main" : "Rear") + " spar socket, glued into each side of the fuselage"});
 
   /* control surfaces (ailerons / elevons) */
   let wcs = null;
@@ -726,7 +795,7 @@ function buildAircraft(A, opts = {}) {
       x0 = Math.max(4, x0); x1 = Math.min(F.L - 4, x1);
       if (x1 - x0 < 6) return null;
       const idx = idxRun((x0 + x1) / 2, ang, w);
-      const clash = openings.find(o => o.x1 > x0 - 2 && o.x0 < x1 + 2 && o.idx.some(k => idx.some(q => Math.abs(((q - k + nRing + nRing / 2) % nRing) - nRing / 2) <= 1)));
+      const clash = openings.find(o => o.x1 > x0 - 2 && o.x0 < x1 + 2 && o.idx.some(k => idx.some(q => Math.abs(((q - k + nRing + nRing / 2) % nRing) - nRing / 2) <= 2)));
       if (clash) { if (!optional) warns.push(`The ${kind} overlaps the ${clash.kind}; drag it to a clear spot.`); return null; }
       const o = {id, x0, x1, ang, w, kind, idx}; openings.push(o); return o;
     };
@@ -758,6 +827,17 @@ function buildAircraft(A, opts = {}) {
       const w = Math.min(9, p.fuseW / 5), len = Math.max(12, area / (2 * w));
       for (const ang of mirrorAngs(p.exhaustAng, p.exhaustMirror)) addOpening("ex" + ang.toFixed(2), p.exhaustX, p.exhaustX + len, ang, w, "exhaust");
     }
+
+    /* spar pass-throughs: a tube crossing the fuselage needs a hole in both sides */
+    sparPorts.forEach((sp, i) => {
+      const xc = Math.max(8, Math.min(sp.x, F.L - 8)), [, hh, zc] = F.profile(xc), rp = sp.d / 2 + 1.2;
+      if (Math.abs(sp.z - zc) > hh + 6) return;
+      for (const sg of [1, -1]) {
+        const ang = Math.atan2((sp.z - zc) / Math.max(1, hh) * 0.5, sg);
+        if (!addOpening(`spar${i}_${sg}`, xc - rp, xc + rp, ang, rp, `${sp.label} pass-through`, true))
+          warns.push(`The ${sp.label} crosses the fuselage where another opening already is, so its hole was left out. Move the spar or that opening, or cut the hole by hand.`);
+      }
+    });
 
     /* wire pass-throughs: a slot in the shell where a channel meets a root face */
     if (p.wireCh) wirePorts.forEach((wp, i) => {

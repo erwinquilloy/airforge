@@ -165,7 +165,10 @@ const Viewer = (() => {
       if (sp.wire) {                                                                     // a curved channel, drawn in steps
         for (const side of [1, -1]) for (let k = 0; k < 8; k++)
           rod(pt(lerp(sp.yStart, sp.yEnd, k / 8), side), pt(lerp(sp.yStart, sp.yEnd, (k + 1) / 8), side), sp.r * 0.8, wireMat);
-      } else if (sp.continuous) rod(pt(sp.yEnd, -1), pt(sp.yEnd, 1), sp.tube[0] / 2, carbon);   // one rod across both wings
+      } else if (sp.continuous) {
+        rod(pt(sp.yEnd, -1), pt(sp.yEnd, 1), sp.tube[0] / 2, carbon);                            // one rod across both wings
+        if (sp.telescope) rod(pt(sp.sockLen / 2, -1), pt(sp.sockLen / 2, 1), sp.socket[0] / 2, carbon);   // the fuselage socket
+      }
       else for (const side of [1, -1]) rod(pt(sp.yStart, side), pt(sp.yEnd, side), sp.tube[0] / 2, carbon);
     }
     for (const bm of L.booms.filter(q => q.role === "tail")) for (const side of bm.mirrored ? [1, -1] : [1]) rod([bm.a[0], side * bm.a[1], bm.a[2]], [bm.b[0], side * bm.b[1], bm.b[2]], bm.tube[0] / 2, carbon);
