@@ -263,8 +263,8 @@ function buildAircraft(A, opts = {}) {
     for (const tube of [run.tube, ...TUBES.filter(q => q[0] < run.tube[0]).reverse()]) {
       const r2 = tube[0] / 2 + clr;
       for (let u = 0.08; u <= 0.88; u += 0.02) {
-        const sk = skin(anchor, u), zW = W.dihZ(anchor.y) + (sk[0] + sk[1]) / 2, x = sk[2];
-        const line = y => [x, zW - W.dihZ(y)];
+        const sk = skin(anchor, u), x = sk[2], zc = (sk[0] + sk[1]) / 2;
+        const line = y => [x, zc];                                     // straight, square to the centerline, in the panel
         const sp = spanAround(line, r2, seed, from, yHi);
         if (!sp || sp[1] - sp[0] < 90 || sp[1] < run.yEnd + 40) continue;
         if (crosses(line, r2, sp[1])) continue;
@@ -333,11 +333,19 @@ function buildAircraft(A, opts = {}) {
     if (p.sparLayout === "continuous" || p.sparLayout === "telescope") warns.push(nm + ": a straight tube square to the centerline leaves the skin after " + fmtN(contReach) + " mm, so it cannot be " + (p.sparLayout === "telescope" ? "telescoped into a fuselage socket" : "run through in one piece") + ". Reduce dihedral and sweep, or use the joiner layout.");
     const panels = W.cranked && W.yk > 15 && W.yk < half - 15 ? [[0, W.yk], [W.yk, half * 0.97]] : [[0, half * 0.97]];
     panels.forEach(([y0, y1], ri) => {
-      const yA = Math.max(y0 + 1, Math.min(y0 + (y1 - y0) * 0.1, W.blendEnd)), yB = y1 - (y1 - y0) * 0.1;
-      const pt = y => { const w = W.wingAt(y), sk = skin(w, pos); return [sk[2], (sk[0] + sk[1]) / 2]; };
-      const PA = pt(yA), PB = pt(yB);
-      const line = y => { const u = (y - yA) / (yB - yA); return [lerp(PA[0], PB[0], u), lerp(PA[1], PB[1], u)]; };
-      const end = reachOf(line, r, y0, y1);
+      /* A tube is straight: hold x and the section-relative height, so the bore is square to the
+         centerline in plan and lies in the panel, following its dihedral. Anchoring it to a chord
+         fraction instead would sweep it with the wing, which no straight tube can do. */
+      const yA = Math.max(y0 + 1, Math.min(y0 + (y1 - y0) * 0.1, W.blendEnd));
+      const atU = u => { const sk = skin(W.wingAt(yA), u); return {u, x: sk[2], line: y => [sk[2], (sk[0] + sk[1]) / 2]}; };
+      let best = null;                                                  // slide along the chord to where it reaches furthest
+      for (let u = Math.max(0.06, pos - 0.3); u <= Math.min(0.9, pos + 0.3); u += 0.02) {
+        const c = atU(u), reach = reachOf(c.line, r, y0, y1);
+        if (!best || reach > best.reach + 0.02 * half || (reach > best.reach - 0.02 * half && Math.abs(u - pos) < Math.abs(best.u - pos))) best = Object.assign(c, {reach});
+      }
+      const asked = atU(pos), askedReach = reachOf(asked.line, r, y0, y1);
+      const picked = askedReach >= (y1 - y0) * 0.75 + y0 || !best || best.reach < askedReach + 0.15 * half ? Object.assign(asked, {reach: askedReach}) : best;
+      const line = picked.line, end = picked.reach;
       if (end <= y0 + 20) return;
       if (crosses(line, r, end)) { warns.push(nm + ": no room for a tube in this panel clear of the other spar; move one of the spar positions."); return; }
       const run = {id: id * 4 + ri + 1, tube: t.tube, yStart: y0, yEnd: end, line, r, continuous: false, axis: "a" + id + "_" + ri};
