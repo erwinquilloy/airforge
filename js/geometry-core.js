@@ -59,7 +59,26 @@ const NOMETA = [-1, 0, -1, 0, -1, 0];
 
 /* ---------- triangulated planar face at loft coordinate s ----------
    pts/holes are 2D (u,v); the face lies in plane s; sign = desired normal along ±s */
+/* Two outline points on top of each other make the triangulator emit the same sliver twice,
+   which leaves unpaired edges. Sections that have been reshaped (a blend, a heavy taper) can
+   produce them, so every face drops repeated points before it is triangulated. */
+const dedup = pts => {
+  const out = [];
+  for (const q of pts) {
+    const prev = out[out.length - 1];
+    if (!prev || Math.abs(prev[0] - q[0]) > 1e-4 || Math.abs(prev[1] - q[1]) > 1e-4) out.push(q);
+  }
+  while (out.length > 2) {
+    const a = out[0], b = out[out.length - 1];
+    if (Math.abs(a[0] - b[0]) > 1e-4 || Math.abs(a[1] - b[1]) > 1e-4) break;
+    out.pop();
+  }
+  return out;
+};
 function faceAt(m, pts, holes, s, sign) {
+  pts = dedup(pts);
+  holes = (holes || []).map(dedup).filter(h => h.length > 2);
+  if (pts.length < 3) return;
   const contour = pts.map(p => new THREE.Vector2(p[0], p[1])), hv = (holes || []).map(h => h.map(p => new THREE.Vector2(p[0], p[1])));
   const all = contour.concat(...hv);
   for (const [i, j, k] of THREE.ShapeUtils.triangulateShape(contour, hv)) {
@@ -188,7 +207,9 @@ function plate(outer, holes, th) {
 }
 // half-step phase keeps hole vertices off the axes, so neighbouring holes never share collinear points
 const circle = (cx, cy, r, n = 20) => Array.from({length: n}, (_, i) => { const a = 2 * Math.PI * (i + 0.5) / n + 0.13; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; });
-const holeRing = (cx, cz, r, n = 24) => Array.from({length: n}, (_, k) => { const a = -2 * Math.PI * (k + 0.5) / n; return [cx + r * Math.cos(a), cz + r * Math.sin(a)]; });
+/* the half-step and the odd phase keep ring vertices off the outline vertices they sit near:
+   aligned ones make the triangulator emit overlapping slivers (same reason circle() is offset) */
+const holeRing = (cx, cz, r, n = 24) => Array.from({length: n}, (_, k) => { const a = -2 * Math.PI * (k + 0.5) / n + 0.11; return [cx + r * Math.cos(a), cz + r * Math.sin(a)]; });
 const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
 const roundRect = (x0, y0, x1, y1, r) => {
   r = Math.min(r, (x1 - x0) / 2 - 0.01, (y1 - y0) / 2 - 0.01);

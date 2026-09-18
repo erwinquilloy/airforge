@@ -6,14 +6,15 @@
    world triangles (viewer, assembly STL) and a print rotation.
    ========================================================================== */
 const PETG_NOTE = "PETG or ASA, 3 perimeters, 30% infill, flat on the bed.";
+const COVER_T = 1.4;                                                   // a servo cover sits in its pocket, flush with the skin
 
 /* ---------------- lifting segment: skin with pockets, bores and control-surface cut ---------------- */
 function buildLiftSeg(c) {
+  /* Stations where the section changes are required; the regular subdivision and section breaks
+     are not, and a station a fraction of a millimetre from a required one only makes a sliver. */
   const S = new Set([+c.s0.toFixed(4), +c.s1.toFixed(4)]);
   const add = v => { if (v > c.s0 + 0.2 && v < c.s1 - 0.2) S.add(+v.toFixed(4)); };
-  const nReg = Math.max(1, Math.ceil((c.s1 - c.s0) / c.step));
-  for (let i = 1; i < nReg; i++) add(c.s0 + (c.s1 - c.s0) * i / nReg);
-  for (const b of c.breaks || []) add(b);
+  const addOpt = v => { if (v > c.s0 + 0.2 && v < c.s1 - 0.2 && ![...S].some(q => Math.abs(q - v) < 0.6)) S.add(+v.toFixed(4)); };
   const cs = c.cs && c.cs.b > c.s0 + 0.2 && c.cs.a < c.s1 - 0.2 ? c.cs : null;
   const hpInOK = !!(cs && cs.pin && cs.a - cs.depth > c.s0 + 0.2), hpOutOK = !!(cs && cs.pin && cs.b + cs.depth < c.s1 - 0.2);
   if (cs) { add(cs.a); add(cs.b); if (hpInOK) add(cs.a - cs.depth); if (hpOutOK) add(cs.b + cs.depth); }
@@ -22,7 +23,11 @@ function buildLiftSeg(c) {
   const dPin = Math.min(c.pinDepth, (c.s1 - c.s0) / 2 - 2);
   if (c.pinsIn.length) add(c.s0 + dPin);
   if (c.pinsOut.length) add(c.s1 - dPin);
+  const nReg = Math.max(1, Math.ceil((c.s1 - c.s0) / c.step));
+  for (let i = 1; i < nReg; i++) addOpt(c.s0 + (c.s1 - c.s0) * i / nReg);
+  for (const b of c.breaks || []) addOpt(b);
   const ys = [...S].sort((a, b) => a - b), N = ys.length, nU = c.U.length;
+  if (globalThis.LOFTDBG) { const gaps = ys.slice(1).map((v, i) => +(v - ys[i]).toFixed(3)); console.log('LOFT s0', c.s0.toFixed(1), 's1', c.s1.toFixed(1), 'stations', N, 'min gap', Math.min(...gaps), 'ys0..3', ys.slice(0,4).map(v=>+v.toFixed(2)).join(',')); }
   const P = ys.map(s => foilPts(c.sectionAt(s), c.U, c.minTE));
   const gridIdx = c.U.map(u => XG.findIndex(x => Math.abs(x - u) < 1e-9));
 
@@ -204,6 +209,22 @@ function buildAircraft(A, opts = {}) {
   /* ================= wing features ================= */
   const half = W.half;
   let bounds = cutBounds(half, zUse, p.wingCuts, manual);
+  /* A printed wing starts at the fuselage side. The wing runs to the centreline for the
+     aerodynamics, but the panel you print butts against the body — otherwise half of it sits
+     inside the fuselage, in the way of the battery and visible through the nose. */
+  const rootY = L.hasFuse ? (() => {
+    const w0 = W.wingAt(0);
+    let hw = 0;                                                        // widest the body gets anywhere under the root chord
+    for (let x = w0.x; x <= w0.x + w0.c; x += 4) {
+      const xc = Math.max(2, Math.min(x, L.fuse.L - 2));
+      hw = Math.max(hw, L.fuse.profile(xc)[0]);
+    }
+    return Math.min(half * 0.35, hw + 0.4);
+  })() : 0;
+  if (rootY > 1) {
+    bounds = [rootY, ...bounds.filter(v => v > rootY + 15)];
+    if (bounds[bounds.length - 1] < half - 0.5) bounds.push(half);
+  }
   if (W.cranked && W.yk > 15 && W.yk < half - 15) {                    // a cranked wing always splits at the kink
     if (!bounds.some(v => Math.abs(v - W.yk) < 12)) bounds = [...bounds, W.yk].sort((a, b) => a - b);
     for (let i = 1; i < bounds.length; i++) {
@@ -459,7 +480,7 @@ function buildAircraft(A, opts = {}) {
       const sk = skin(wT, wcs.uH - 0.12), deep = sk[0] - sk[1] >= servo.H + 3;
       const ways = p.servoOrient === "flat" ? [false] : p.servoOrient === "stand" ? [true] : deep ? [true, false] : [false];
       for (const upright of ways) {
-        const chord = (upright ? servo.W : servo.H) + 2 * 2.4 + 0.4, depth = (upright ? servo.H : servo.W) + 1;
+        const chord = (upright ? servo.W : servo.H) + 2 * 2.4 + 0.4, depth = (upright ? servo.H : servo.W) + 1.5 + COVER_T;
         for (let gap = p.servoGap; gap >= 1 && !bay; gap -= 1) {
           const cand = makeBay("servo", sTry, lenS, xH - gap - chord, xH - gap, depth, "bottom", "servo", {stand: upright, servo});
           if (cand && !sparXAt(sTry).some(([sx, sr]) => sx + sr + 2 > wT.x + cand.ua * wT.c)) { bay = cand; usedGap = gap; stand = upright; usedS = sTry; }
@@ -497,6 +518,7 @@ function buildAircraft(A, opts = {}) {
   for (const b of bays) { insertU(b.ua); insertU(b.ub); }
   for (const b of bays) {
     b.ia = U.indexOf(b.ua); b.ib = U.indexOf(b.ub);
+    b.want = b.depth;                                                  // what the servo and its cover need
     const lowest = s => { const w = W.wingAt(s), P = foilPts(w, U, p.minTE); let z = Infinity; for (let i = b.ia; i <= b.ib; i++) z = Math.min(z, P.lo[i][1]); return z; };
     const topMin = s => { const w = W.wingAt(s), P = foilPts(w, U, p.minTE); let z = Infinity; for (let i = b.ia; i <= b.ib; i++) z = Math.min(z, P.up[i][1]); return z; };
     b.zBot = Math.min(lowest(b.a), lowest(b.b), lowest((b.a + b.b) / 2));
@@ -504,7 +526,9 @@ function buildAircraft(A, opts = {}) {
     b.roofZ = Math.min(b.zBot + b.depth, ceiling);
     b.protrudes = b.zBot + b.depth - ceiling;
     b.roof = () => b.roofZ;
-    if (b.protrudes > 0.5) warns.push(`${b.kind === "servo" ? "Servo" : "Hardpoint"} pocket is ${fmtN(b.protrudes, 1)} mm deeper than the wing; the ${b.kind === "servo" ? "servo cover" : "block"} will stand proud.`);
+    b.blister = b.kind === "servo" ? Math.max(0, b.want - (b.roofZ - b.zBot)) : 0;
+    if (b.kind !== "servo" && b.protrudes > 0.5) warns.push(`Hardpoint pocket is ${fmtN(b.protrudes, 1)} mm deeper than the wing; the block will stand proud.`);
+    else if (b.blister > 0.2) L.note("Systems", `The wing is ${fmtN(b.roofZ - b.zBot, 1)} mm deep at the servo pocket, so the cover carries a ${fmtN(b.blister, 1)} mm blister over the servo; the rest of it sits flush.`);
   }
   const iH = wcs ? U.indexOf(wcs.uH) : -1;
   if (wcs) wcs.iH = iH;
@@ -525,7 +549,7 @@ function buildAircraft(A, opts = {}) {
         let ok = true;
         for (let y = 0; y <= yEnd && ok; y += 3) {
           const yc = Math.min(y, yEnd - 0.01), q = line(yc);
-          if (!fitsAt(yc, q[0], q[1], rw, true) || sparXAt(yc).some(([sx, sr]) => Math.abs(sx - q[0]) < sr + rw + 1.5)) ok = false;
+          if (!fitsAt(yc, q[0], q[1], rw + 0.5, true) || sparXAt(yc).some(([sx, sr]) => Math.abs(sx - q[0]) < sr + rw + 1.5)) ok = false;
         }
         if (!ok) continue;
         spars.push({id, tube: null, yStart: 0, yEnd, line, r: rw, wire: true, label, d});
@@ -611,14 +635,30 @@ function buildAircraft(A, opts = {}) {
       if (b.kind === "servo") {
         servoMark = {s: sm, x: xm, z: b.zBot};
         const sv = b.meta.servo, dc = (b.meta.stand ? sv.W : sv.H) + 0.4, pad = 11;
-        const th = Math.max(2, b.roofZ - 0.3 - b.zBot);
+        const zSeat = b.zBot + COVER_T;                                 // the cover fills the mouth, frame sits above it
+        const th = Math.max(2, b.roofZ - 0.3 - zSeat);
         const ins = [[xm, b.a + pad / 2], [xm, b.b - pad / 2]];
         const frame = plate(rect(xa + 0.25, b.a + 0.25, xb - 0.25, b.b - 0.25), [rect(xm - dc / 2, sm - (sv.L + 0.5) / 2, xm + dc / 2, sm + (sv.L + 0.5) / 2), ...ins.map(q => circle(q[0], q[1], insR, 16))], th)
-          .transformed(ID3, [0, 0, b.zBot]);
-        extras.push({name: "servo_frame", group: "ctrl", mesh: frame, print: "flat", settings: "PETG, 3 perimeters. Glue into the pocket, then press in 2 × M3 heat-set inserts from below."});
-        const cover = plate(rect(xa + 0.25, b.a + 0.25, xb - 0.25, b.b - 0.25), [...ins.map(q => circle(q[0], q[1], clearR, 14)), rect(xb - 7.5, b.b - pad - 13, xb - 1.5, b.b - pad - 1)], 1.2)
-          .transformed(ID3, [0, 0, b.zBot - 1.2]);
-        extras.push({name: "servo_cover", group: "ctrl", mesh: cover, print: "flat", settings: "PETG or LW-PLA, 2 perimeters. Screws on with 2 × M3; the slot passes the pushrod."});
+          .transformed(ID3, [0, 0, zSeat]);
+        extras.push({name: "servo_frame", group: "ctrl", mesh: frame, print: "flat", settings: "PETG, 3 perimeters. Glue into the pocket against the step, then press in 2 × M3 heat-set inserts from below."});
+        const bl = b.blister > 0.2 ? b.blister + 0.6 : 0;
+        const slot = rect(xb - 7.5, b.b - pad - 13, xb - 1.5, b.b - pad - 1);
+        const bx0 = Math.max(xa + 2.2, xm - dc / 2 - 0.6), bs0 = sm - (sv.L + 0.5) / 2 - 0.6, bs1 = sm + (sv.L + 0.5) / 2 + 0.6, xE = xb - 0.25;
+        let cover;
+        if (bl) {                                                       // servo taller than the section: a blister, open aft
+          cover = plate([[xa + 0.25, b.a + 0.25], [xE, b.a + 0.25], [xE, bs0], [bx0, bs0], [bx0, bs1], [xE, bs1], [xE, b.b - 0.25], [xa + 0.25, b.b - 0.25]],
+            ins.map(q => circle(q[0], q[1], clearR, 14)), COVER_T).transformed(ID3, [0, 0, b.zBot]);
+          const w2 = 1.4, g = 0.3, wx = bx0 - g, ws0 = bs0 - g, ws1 = bs1 + g;
+          cover.add(plate([[wx - w2, ws0 - w2], [xE, ws0 - w2], [xE, ws0], [wx, ws0], [wx, ws1], [xE, ws1], [xE, ws1 + w2], [wx - w2, ws1 + w2]], [], bl + 0.5)
+            .transformed(ID3, [0, 0, b.zBot - bl]));
+          cover.add(plate(roundRect(wx - w2 + 0.35, ws0 - w2 + 0.35, xE - 0.35, ws1 + w2 - 0.35, 1.2), [], 1.8)
+            .transformed(ID3, [0, 0, b.zBot - bl - 1.4]));
+        } else {
+          cover = plate(rect(xa + 0.25, b.a + 0.25, xb - 0.25, b.b - 0.25),
+            [...ins.map(q => circle(q[0], q[1], clearR, 14)), slot], COVER_T).transformed(ID3, [0, 0, b.zBot]);
+        }
+        extras.push({name: "servo_cover", group: "ctrl", mesh: cover, print: "flat",
+          settings: `PETG or LW-PLA, 2 perimeters. It drops into the pocket and finishes level with the skin; 2 × M3 hold it.${bl ? ` The ${fmtN(bl, 1)} mm blister houses the part of the servo the section cannot swallow, and its open end passes the pushrod.` : " The slot passes the pushrod."}`});
         bom.inserts += 2; bom.m3screws += 2; bom.servos++;
       } else {
         const th = Math.max(3, b.roofZ - 0.3 - (b.zBot - 1));
@@ -707,7 +747,7 @@ function buildAircraft(A, opts = {}) {
       const loS = pb[segi] + dP + 4 + lenS / 2, hiS = pb[segi + 1] - dP - 4 - lenS / 2;
       if (hiS > loS) sMid = Math.min(hiS, Math.max(loS, sMid));
       const m = at(sMid);
-      const chord = servo.H + 2 * 2.2 + 0.4, want = servo.W + 1;        // lying flat: a printed tail is rarely thicker
+      const chord = servo.H + 2 * 2.2 + 0.4, want = servo.W + 1 + COVER_T;   // lying flat: a printed tail is rarely thicker
       /* depth the panel can swallow with the bay's back edge at chord fraction ub */
       const roomAt = ub => {
         const ua = ub - chord / m.c;
@@ -768,7 +808,7 @@ function buildAircraft(A, opts = {}) {
         for (let s = 0; s <= sEnd && ok; s += 3) {
           const sc = Math.min(s, sEnd - 0.01), q = lineW(sc), a2 = at(sc);
           const Q = foilPts(a2, [0, Math.min(0.92, Math.max(0.03, (q[0] - a2.x) / a2.c))], p.minTE);
-          if (Q.up[1][1] - rw - 1 < q[1] || Q.lo[1][1] + rw + 1 > q[1]) ok = false;
+          if (Q.up[1][1] - rw - 1.7 < q[1] || Q.lo[1][1] + rw + 1.7 > q[1]) ok = false;
           if (rodLine && sc < rodLine.sEnd && Math.abs(rodLine.line(sc)[0] - q[0]) < rodLine.r + rw + 1.5) ok = false;
         }
         if (ok) {
@@ -808,10 +848,10 @@ function buildAircraft(A, opts = {}) {
       if (bayHere) {
         const mB = at((tbay.a + tbay.b) / 2), xa = mB.x + tbay.ua * mB.c, xb = mB.x + tbay.ub * mB.c;
         const xm = (xa + xb) / 2, sm = (tbay.a + tbay.b) / 2, sv = tbay.meta.servo;
-        const dc = sv.H + 0.4, pad = 10, th = Math.max(2, tbay.roofZ - 0.3 - tbay.zBot);
+        const dc = sv.H + 0.4, pad = 10, th = Math.max(2, tbay.roofZ - 0.3 - tbay.zBot - COVER_T);
         const ins = [[xm, tbay.a + pad / 2], [xm, tbay.b - pad / 2]];
         hw.push({nm: "servo_frame", mesh: plate(rect(xa + 0.25, tbay.a + 0.25, xb - 0.25, tbay.b - 0.25),
-          [rect(xm - dc / 2, sm - (sv.L + 0.5) / 2, xm + dc / 2, sm + (sv.L + 0.5) / 2), ...ins.map(q => circle(q[0], q[1], insR, 16))], th).transformed(ID3, [0, 0, tbay.zBot]),
+          [rect(xm - dc / 2, sm - (sv.L + 0.5) / 2, xm + dc / 2, sm + (sv.L + 0.5) / 2), ...ins.map(q => circle(q[0], q[1], insR, 16))], th).transformed(ID3, [0, 0, tbay.zBot + COVER_T]),
           settings: "PETG, 3 perimeters. Glue into the pocket, then press in 2 × M3 heat-set inserts from below."});
         const bl = tbay.meta.blister > 0.2 ? tbay.meta.blister + 0.6 : 0;
         const xE = xb - 0.25, sA = tbay.a + 0.25, sB = tbay.b - 0.25;
@@ -821,8 +861,8 @@ function buildAircraft(A, opts = {}) {
              out to the aft edge, so it doubles as the pushrod exit and never crosses a hole. */
           const bx0 = Math.max(xa + 2.2, xm - dc / 2 - 0.6), bs0 = sm - (sv.L + 0.5) / 2 - 0.6, bs1 = sm + (sv.L + 0.5) / 2 + 0.6;
           cover = plate([[xa + 0.25, sA], [xE, sA], [xE, bs0], [bx0, bs0], [bx0, bs1], [xE, bs1], [xE, sB], [xa + 0.25, sB]],
-            ins.map(q => circle(q[0], q[1], clearR, 14)), 1.2).transformed(ID3, [0, 0, tbay.zBot - 1.2]);
-          const w = 1.4, z0 = tbay.zBot - 1.2, g = 0.3;
+            ins.map(q => circle(q[0], q[1], clearR, 14)), COVER_T).transformed(ID3, [0, 0, tbay.zBot]);
+          const w = 1.4, z0 = tbay.zBot, g = 0.3;
           const wx = bx0 - g, ws0 = bs0 - g, ws1 = bs1 + g;              // opening a shade wider than the plate's notch,
           cover.add(plate([[wx - w, ws0 - w], [xE, ws0 - w], [xE, ws0], [wx, ws0], [wx, ws1], [xE, ws1], [xE, ws1 + w], [wx - w, ws1 + w]], [], bl + 0.5)
             .transformed(ID3, [0, 0, z0 - bl]));                         // so this U-shaped wall overlaps the plate instead
@@ -831,8 +871,8 @@ function buildAircraft(A, opts = {}) {
             .transformed(ID3, [0, 0, z0 - bl - 1.4]));                   // cap overlaps the wall the same way
         } else {
           cover = plate(rect(xa + 0.25, sA, xE, sB),
-            [...ins.map(q => circle(q[0], q[1], clearR, 14)), rect(xb - 7.5, tbay.b - pad - 12, xb - 1.5, tbay.b - pad - 1)], 1.2)
-            .transformed(ID3, [0, 0, tbay.zBot - 1.2]);
+            [...ins.map(q => circle(q[0], q[1], clearR, 14)), rect(xb - 7.5, tbay.b - pad - 12, xb - 1.5, tbay.b - pad - 1)], COVER_T)
+            .transformed(ID3, [0, 0, tbay.zBot]);
         }
         hw.push({nm: "servo_cover", mesh: cover, blister: bl,
           settings: `PETG or LW-PLA, 2 perimeters. Screws on with 2 × M3.${bl ? ` The ${fmtN(bl, 1)} mm blister houses the part of the servo the panel cannot swallow; its open aft end passes the pushrod. Print it blister up, no supports.` : " The slot passes the pushrod."}`});
@@ -929,7 +969,7 @@ function buildAircraft(A, opts = {}) {
     }
 
     /* spar pass-throughs: a tube crossing the fuselage needs a hole in both sides */
-    sparPorts.forEach((sp, i) => {
+    if (p.fuseHoles !== false) sparPorts.forEach((sp, i) => {
       const xc = Math.max(8, Math.min(sp.x, F.L - 8)), [, hh, zc] = F.profile(xc), rp = sp.d / 2 + 1.2;
       if (Math.abs(sp.z - zc) > hh + 6) return;
       for (const sg of [1, -1]) {
@@ -940,7 +980,7 @@ function buildAircraft(A, opts = {}) {
     });
 
     /* wire pass-throughs: a slot in the shell where a channel meets a root face */
-    if (p.wireCh) wirePorts.forEach((wp, i) => {
+    if (p.wireCh && p.fuseHoles !== false) wirePorts.forEach((wp, i) => {
       const xc = Math.max(10, Math.min(wp.x, F.L - 10)), [hw, hh, zc] = F.profile(xc), rp = (wp.d || p.wireD) / 2 + 1.6;
       if (Math.abs(wp.z - zc) > hh + 8) return;                         // that root face is nowhere near the shell
       const sides = wp.lateral ? (wp.y === undefined ? [1, -1] : [Math.sign(wp.y) || 1]) : [0];
